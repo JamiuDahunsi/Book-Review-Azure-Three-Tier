@@ -34,7 +34,7 @@ The deployment enforces zero direct public ingress to backend compute and databa
 * **Controlled Public Ingress:** Expose only an Azure Standard Public Load Balancer to the public internet on TCP port 80.
 * **Zero Public Exposure for Backend & Database:** The Application VM possesses no Public IP address; the Azure Database for MySQL Flexible Server operates with private access only inside a delegated subnet.
 * **Controlled Outbound Internet Egress:** Provide package updates (`apt`), Node runtime packages (`npm`), and repository downloads via an Azure NAT Gateway without allowing unsolicited inbound traffic.
-* **Bastion Jump Host Administration:** Restrict administrative SSH access to the Web VM from an authorized administrator IP (`/32`), and manage the private App VM exclusively via SSH ProxyJump (`-J`).
+* **Bastion Jump Host Administration:** Restrict administrative SSH access to the Web VM, and manage the private App VM exclusively via SSH ProxyJump (`-J`).
 * **Resilient Internal Routing:** Route all frontend-to-backend API traffic through an Azure Standard Internal Load Balancer assigned a reserved private IP (`10.0.2.10:3001`).
 
 ---
@@ -51,7 +51,7 @@ The diagram below illustrates the complete component topology, network boundarie
 flowchart TD
     subgraph Internet ["Public Internet"]
         User["End-User Client Browser"]
-        Admin["DevOps Workstation (Admin IP /32)"]
+        Admin["DevOps Workstation (Admin)"]
     end
 
     subgraph Azure ["Microsoft Azure Cloud (South Africa North) | BookReview_RG"]
@@ -71,7 +71,7 @@ flowchart TD
                 MySQL["Azure Database for MySQL Flexible Server<br/>• Private Access & DNS Zone<br/>• Port 3306 (SSL/TLS Required)<br/>• Database: book_review_db"]
             end
 
-            NAT["Azure NAT Gateway: Book_Review_NAT_GW<br/>Public IP: Book_Review_PIP<br/>(Outbound Updates for Web & App Subnets)"]
+            NAT["Azure NAT Gateway: Book_Review_NAT_GW<br/>Public IP: Book_Review_PIP (4.221.200.108)<br/>(Outbound Updates for Web & App Subnets)"]
         end
     end
 
@@ -88,7 +88,7 @@ flowchart TD
     AppVM -.->|Outbound Egress Only| NAT
 
     %% Administrative Flow
-    Admin -->|SSH :22 (Restricted to Admin /32)| WebVM
+    Admin -->|SSH :22 Direct| WebVM
     Admin -.->|SSH ProxyJump -J via Web VM| AppVM
 ```
 
@@ -98,11 +98,11 @@ flowchart TD
 
 The Virtual Network uses the classless inter-domain routing (CIDR) block `10.0.0.0/16`. It is segmented into three non-overlapping subnets sized according to workload characteristics, scalability requirements, and Azure-reserved IP constraints:
 
-| Subnet Name | CIDR Block | Total IPs | Azure Reserved IPs | Usable Host IPs | Purpose & Associated Resources | Delegation |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`Web_Subnet`** | `10.0.1.0/24` | 256 | 5 | 251 | Public Load Balancer backend pool, Web VM (`10.0.1.4`) | None |
-| **`App_Subnet`** | `10.0.2.0/25` | 128 | 5 | 123 | Internal Load Balancer (`10.0.2.10`), Private App VM (`10.0.2.4`) | None |
-| **`DB_Subnet`** | `10.0.3.0/26` | 64 | 5 | 59 | Azure Database for MySQL Flexible Server & Private Endpoints | `Microsoft.DBforMySQL/flexibleServers` |
+| Subnet Name | CIDR Block | Total IPs | Azure Reserved IPs | Usable Host IPs | Purpose & Associated Resources | Subnet NSG | Delegation |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`Web_Subnet`** | `10.0.1.0/24` | 256 | 5 | 251 | Public Load Balancer backend pool, Web VM (`10.0.1.4`) | `Web_NSG` | None |
+| **`App_Subnet`** | `10.0.2.0/25` | 128 | 5 | 123 | Internal Load Balancer (`10.0.2.10`), Private App VM (`10.0.2.4`) | `App_NSG` | None |
+| **`DB_Subnet`** | `10.0.3.0/26` | 64 | 5 | 59 | Azure Database for MySQL Flexible Server & Private DNS | `DB_NSG` | `Microsoft.DBforMySQL/flexibleServers` |
 
 > **Azure Subnet Address Reservation Rule:** In any Azure Virtual Network subnet, Azure reserves the first four IP addresses (`.0` network, `.1` default gateway, `.2`/`.3` Azure DNS mapping) and the last IP address (`.255` broadcast) for cloud platform operations.
 
@@ -111,8 +111,8 @@ The Virtual Network uses the classless inter-domain routing (CIDR) block `10.0.0
 ## Task 1: Architecture Design & Implementation Strategy
 
 ### 1.1 Strategic Design Decisions
-* **Cloud Region Selection:** `South Africa North`. Selected based on validated capacity for burstable compute (`Standard_B2s_v2` / `Standard_B2ats_v2`), Azure MySQL Flexible Server burstable SKUs (`Standard_B1ms`), and minimal latency.
-* **Compute Capacity Planning:** Ubuntu 24.04 LTS instances running on dual-core burstable VMs (`Standard_B2s_v2`). This configuration provides adequate memory (4 GiB) and burstable CPU credits to compile Next.js production builds and execute Node.js Express workloads without memory starvation.
+* **Cloud Region Selection:** `South Africa North`. Selected based on validated capacity for burstable compute (`Standard_B2s_v2` / `Standard_B2ats_v2`), Azure MySQL Flexible Server burstable SKUs (`Standard_B1ms`), and minimal regional latency.
+* **Compute Capacity Planning:** Ubuntu 24.04 LTS instances running on dual-core burstable VMs (`Standard_B2s_v2`). This configuration provides adequate memory (4 GiB) and burstable CPU credits to compile Next.js production builds and execute Node.js Express workloads without memory exhaustion.
 * **High Availability & Single-Instance Tradeoff:** For this deployment capstone, one Virtual Machine is deployed per compute tier. Azure Standard Load Balancers monitor target instances via TCP health probes. While a single VM per tier introduces a maintenance window during virtual machine restart, the architecture is designed to scale horizontally into Azure Virtual Machine Scale Sets (VMSS) across multiple Availability Zones without architectural refactoring.
 * **Database Sizing & Data Integrity:** Azure Database for MySQL Flexible Server provisioned with 32 GiB storage and 1-day automated point-in-time recovery backup retention. Enforced SSL/TLS encryption (`require_secure_transport = ON`) guarantees protection against eavesdropping on internal database connections.
 * **Secret Management Strategy:** Application secrets (database credentials, JWT signing secrets, database host FQDN) are maintained in local `.env` configuration files with file permissions hardened to `chmod 600` (readable and writable only by the application owner). Sensitive values are excluded from Git version control via `.gitignore`.
@@ -181,30 +181,28 @@ Demonstrates the `Book_Review_NAT_GW` associated with the dedicated Public IP `B
 
 ## Task 3: Security & Network Access Control
 
-### 3.1 Network Security Group (NSG) Design Matrix
-To enforce strict least-privilege network access between tiers, three dedicated Network Security Groups are created and associated directly to their respective subnets:
+### 3.1 Network Security Group (NSG) Implementation Matrix
+To enforce strict least-privilege network access between tiers, three dedicated Network Security Groups were created and associated directly to their respective subnets:
 
-#### Web Tier NSG: `Book_Review_Web_NSG` (Associated to `Web_Subnet`)
-| Priority | Rule Name | Port | Protocol | Source | Destination | Action | Purpose |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **100** | `Allow-HTTP-Inbound` | `80` | TCP | `Internet` (or `Any`) | `VirtualNetwork` | Allow | Public user browser access to Nginx |
-| **110** | `Allow-SSH-Admin` | `22` | TCP | `Admin_IP/32` | `VirtualNetwork` | Allow | Bastion / Jump Host SSH management |
-| **120** | `Allow-Azure-LB-Probe` | `80` | TCP | `AzureLoadBalancer` | `VirtualNetwork` | Allow | Health probe monitoring from Public LB |
-| **Default** | `DenyAllInbound` | Any | Any | Any | Any | Deny | Azure default block rule |
+#### A. Web Tier NSG: `Web_NSG` (Associated to `Web_Subnet`)
+* **Subnet Binding:** `Web_Subnet (10.0.1.0/24)`
+* **Active Inbound Rules:**
+  * **`SSH_and_HTTP` (Priority 100):** TCP ports `22, 80` allowed from source `*` (Any).  
+    * *Engineering Context:* Allows public user HTTP access to port 80. For SSH administration during active deployment across dynamic engineer IP locations, port 22 is permitted globally with mandatory SSH public key authentication (password authentication disabled at OS level).
+  * **`Allow_LB_Probe_Web` (Priority 110):** TCP port `80` allowed from service tag `AzureLoadBalancer` to ensure reliable health check status monitoring.
 
-#### Application Tier NSG: `Book_Review_App_NSG` (Associated to `App_Subnet`)
-| Priority | Rule Name | Port | Protocol | Source | Destination | Action | Purpose |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **100** | `Allow-WebSubnet-to-App` | `3001` | TCP | `10.0.1.0/24` | `VirtualNetwork` | Allow | Internal API calls from Web VM / Internal LB |
-| **110** | `Allow-SSH-from-WebVM` | `22` | TCP | `10.0.1.4/32` | `VirtualNetwork` | Allow | SSH ProxyJump administration from Web VM |
-| **120** | `Allow-Azure-LB-Probe` | `3001` | TCP | `AzureLoadBalancer` | `VirtualNetwork` | Allow | Health probe monitoring from Internal LB |
-| **Default** | `DenyAllInbound` | Any | Any | Any | Any | Deny | Azure default block rule (blocks Internet) |
+#### B. Application Tier NSG: `App_NSG` (Associated to `App_Subnet`)
+* **Subnet Binding:** `App_Subnet (10.0.2.0/25)`
+* **Active Inbound Rules:**
+  * **`Allow_3001_and_22` (Priority 100):** Ports `3001` (Express API) and `22` (SSH) allowed strictly from `10.0.1.0/24` (`Web_Subnet`).  
+    * *Engineering Context:* Ensures zero external inbound connections can reach the backend. The API is reachable only from the Web tier, and SSH management is strictly constrained to the Bastion ProxyJump pathway originating from the Web VM.
+  * **`Allow-LB-Probe-App` (Priority 110):** Port `3001` allowed from `AzureLoadBalancer` for Internal Load Balancer health verification.
 
-#### Database Tier NSG: `Book_Review_DB_NSG` (Associated to `DB_Subnet`)
-| Priority | Rule Name | Port | Protocol | Source | Destination | Action | Purpose |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **100** | `Allow-MySQL-from-AppSubnet` | `3306` | TCP | `10.0.2.0/25` | `VirtualNetwork` | Allow | MySQL queries from App VM backend |
-| **Default** | `DenyAllInbound` | Any | Any | Any | Any | Deny | Blocks all non-App subnet connections |
+#### C. Database Tier NSG: `DB_NSG` (Associated to `DB_Subnet`)
+* **Subnet Binding:** `DB_Subnet (10.0.3.0/26)`
+* **Active Inbound Rules:**
+  * **`App_to_DB_rule` (Priority 100):** TCP port `3306` (MySQL) allowed strictly from `10.0.2.0/25` (`App_Subnet`).  
+    * *Engineering Context:* Completely isolates the data tier from the web tier and public internet; only backend application instances residing within the application subnet CIDR can establish database sockets.
 
 ---
 
@@ -212,31 +210,32 @@ To enforce strict least-privilege network access between tiers, three dedicated 
 
 The Web Virtual Machine functions as both the public presentation host and the administrative bastion jump host.
 
-#### Specifications:
+#### Configuration Profile:
 * **VM Name:** `book-review-web-vm`
 * **Resource Group:** `BookReview_RG`
 * **Region:** `South Africa North`
-* **Image:** Ubuntu Server 24.04 LTS (x64)
+* **Image:** Ubuntu Server 24.04 LTS - x64 Gen2
 * **Compute Size:** `Standard_B2s_v2` (2 vCPUs, 4 GiB Memory)
+* **Virtual Network:** `Book_Review_VNet`
 * **Subnet:** `Web_Subnet` (`10.0.1.0/24`)
-* **Private IP:** Static `10.0.1.4`
-* **Public IP:** `pip-book-review-web-vm` (Standard SKU, Static)
-* **Authentication:** SSH Public Key (`azureuser`)
-* **NIC Security Group:** None (delegated to subnet NSG `Book_Review_Web_NSG`)
+* **Private IP Address:** `10.0.1.4` (Static / Dynamic first host allocation)
+* **Public IP Address:** `20.164.204.249` (Standard SKU, Static)
+* **Authentication Method:** SSH Public Key (`azureuser`)
+* **NIC Security Group:** None (delegated to subnet NSG `Web_NSG` for centralized rule enforcement)
 
 ---
 
 ### 3.3 Task 3 Verification & Evidence
 
-#### Screenshot 5: Network Security Group Rules Comparison
-Shows the inbound rules configured across `Book_Review_Web_NSG`, `Book_Review_App_NSG`, and `Book_Review_DB_NSG` demonstrating least-privilege traffic flow.
+#### Screenshot 5: Network Security Group Rules Configuration
+Displays the inbound rules configured across `Web_NSG`, `App_NSG`, and `DB_NSG`, highlighting least-privilege source and port restrictions.
 
-*(Screenshot 5 placeholder - Inbound Security Rules across Web, App, and DB NSGs)*
+![Screenshot 5: NSG Inbound Rules](images/screenshot5_nsg_inbound_rules.png)
 
 #### Screenshot 6: Web Virtual Machine Overview & Network Interface
-Displays `book-review-web-vm` running in `Web_Subnet` with its private IP (`10.0.1.4`) and public IP, with the subscription ID masked.
+Displays `book-review-web-vm` active in `Web_Subnet` showing private IP `10.0.1.4` and public IP `20.164.204.249`.
 
-*(Screenshot 6 placeholder - Web VM Overview & Network Details)*
+![Screenshot 6: Web VM Overview](images/screenshot6_web_vm_overview.png)
 
 ---
 
