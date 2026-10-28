@@ -17,8 +17,9 @@
 4. [Task 1: Architecture Design & Implementation Strategy](#task-1-architecture-design--implementation-strategy)
 5. [Task 2: Azure Network Foundation Deployment](#task-2-azure-network-foundation-deployment)
 6. [Task 3: Security & Network Access Control](#task-3-security--network-access-control)
-7. [Upcoming Implementation Phases (Tasks 4–8)](#upcoming-implementation-phases-tasks-48)
-8. [Author & Engineering Profile](#author--engineering-profile)
+7. [Task 4: Deploy Managed Database Tier (Azure MySQL Flexible Server)](#task-4-deploy-managed-database-tier-azure-mysql-flexible-server)
+8. [Upcoming Implementation Phases (Tasks 5–8)](#upcoming-implementation-phases-tasks-58)
+9. [Author & Engineering Profile](#author--engineering-profile)
 
 ---
 
@@ -188,7 +189,7 @@ To enforce strict least-privilege network access between tiers, three dedicated 
 * **Subnet Binding:** `Web_Subnet (10.0.1.0/24)`
 * **Active Inbound Rules:**
   * **`SSH_and_HTTP` (Priority 100):** TCP ports `22, 80` allowed from source `*` (Any).  
-    * *Engineering Context:* Allows public user HTTP access to port 80. For SSH administration during active deployment across dynamic engineer IP locations, port 22 is permitted globally with mandatory SSH public key authentication (password authentication disabled at OS level).
+    * *Engineering Context:* Allows public user HTTP access to port 80. For SSH administration during active staging across dynamic administrator IP locations, port 22 is permitted globally with mandatory SSH public key authentication (password authentication disabled at OS level).
   * **`Allow_LB_Probe_Web` (Priority 110):** TCP port `80` allowed from service tag `AzureLoadBalancer` to ensure reliable health check status monitoring.
 
 #### B. Application Tier NSG: `App_NSG` (Associated to `App_Subnet`)
@@ -219,29 +220,89 @@ The Web Virtual Machine functions as both the public presentation host and the a
 * **Virtual Network:** `Book_Review_VNet`
 * **Subnet:** `Web_Subnet` (`10.0.1.0/24`)
 * **Private IP Address:** `10.0.1.4` (Static / Dynamic first host allocation)
-* **Public IP Address:** `20.164.204.249` (Standard SKU, Static)
+* **Public IP Address:** `20.164.204.249` (Standard SKU, Static, `pip-book-review-web-vm`)
 * **Authentication Method:** SSH Public Key (`azureuser`)
 * **NIC Security Group:** None (delegated to subnet NSG `Web_NSG` for centralized rule enforcement)
 
 ---
 
-### 3.3 Task 3 Verification & Evidence
+### 3.3 Administrative Bastion & Secret Management Strategy
 
-#### Screenshot 5: Network Security Group Rules Configuration
-Displays the inbound rules configured across `Web_NSG`, `App_NSG`, and `DB_NSG`, highlighting least-privilege source and port restrictions.
+#### SSH ProxyJump Bastion Pathway
+The App VM resides in `App_Subnet` with **no public IP address**. All administrative access is conducted via OpenSSH `ProxyJump` using the Web VM as a secure bastion:
+```bash
+# Connect securely to private App VM via Web VM Bastion
+ssh -i ~/.ssh/id_rsa -J azureuser@20.164.204.249 azureuser@10.0.2.4
+```
+
+#### Secret Management Baseline
+1. Sensitive configuration items (MySQL credentials, JWT signing secrets, database host endpoints) are stored exclusively in local `.env` configuration files on each VM.
+2. File permissions are restricted immediately upon creation:
+   ```bash
+   chmod 600 .env
+   ```
+   This ensures only the owning user process can read or modify application secrets.
+3. Git repositories are guarded with comprehensive `.gitignore` rules to prevent credential leakage.
+
+---
+
+### 3.4 Verification & Evidence
+
+#### Screenshot 5: Network Security Group Inbound Rules Comparison
+Displays the verified inbound security rules configured across `Web_NSG`, `App_NSG`, and `DB_NSG`, enforcing least-privilege traffic boundaries.
 
 ![Screenshot 5: NSG Inbound Rules](images/screenshot5_nsg_inbound_rules.png)
 
-#### Screenshot 6: Web Virtual Machine Overview & Network Interface
-Displays `book-review-web-vm` active in `Web_Subnet` showing private IP `10.0.1.4` and public IP `20.164.204.249`.
+#### Screenshot 6: Web Virtual Machine Public IP & NIC Association
+Displays `pip-book-review-web-vm` showing Public IP `20.164.204.249` bound to network interface `book-review-web-vm307` and Virtual Machine `book-review-web-vm`.
 
 ![Screenshot 6: Web VM Overview](images/screenshot6_web_vm_overview.png)
 
 ---
 
-## Upcoming Implementation Phases (Tasks 4–8)
+## Task 4: Deploy Managed Database Tier (Azure MySQL Flexible Server)
 
-* **Task 4:** Deploy Azure Database for MySQL Flexible Server with Private DNS in `DB_Subnet`.
+### 4.1 Overview & Architecture Rationale
+Rather than maintaining an unmanaged MySQL installation on a self-hosted virtual machine, production enterprise standards mandate using **Azure Database for MySQL Flexible Server**.
+
+Key technical advantages:
+* **Private Network Isolation:** Bound to `DB_Subnet (10.0.3.0/26)` via VNet Integration, with **zero public endpoint**.
+* **Private DNS Zone Integration:** Automatically provisions a private domain name (`*.private.mysql.database.azure.com`) linked to `Book_Review_VNet` for secure intra-VNet name resolution.
+* **Automated Backups & Recovery:** 7-day retention with point-in-time restoration capabilities.
+* **In-Transit Encryption:** Enforces TLS 1.2+ encryption (`require_secure_transport = ON`) on TCP port 3306.
+
+---
+
+### 4.2 Configuration Parameters
+* **Resource Group:** `BookReview_RG`
+* **Server Name:** `book-review-db-jamiu` (or selected unique identifier)
+* **Region:** `South Africa North`
+* **Compute Tier:** Burstable (`Standard_B1ms` - 1 vCore, 2 GiB RAM)
+* **Storage:** 32 GiB (Minimum production baseline)
+* **Connectivity Method:** **Private access (VNet Integration)**
+* **Virtual Network:** `Book_Review_VNet`
+* **Subnet:** `DB_Subnet (10.0.3.0/26)`
+* **Private DNS Zone:** `book-review-db-jamiu.private.mysql.database.azure.com`
+* **Enforced Encryption:** SSL/TLS enabled
+
+---
+
+### 4.3 Verification & Evidence (Placeholders)
+
+#### Screenshot 7: Database Server Overview
+Displays the Azure Database for MySQL Flexible Server overview blade showing server name, status, and compute tier with sensitive subscription details obscured.
+
+*(Screenshot 7 placeholder - Azure MySQL Flexible Server Overview)*
+
+#### Screenshot 8: Database Networking & Private DNS Integration
+Displays the database Networking blade confirming Private Access within `DB_Subnet` and active Private DNS Zone integration.
+
+*(Screenshot 8 placeholder - Azure MySQL Networking & Private DNS)*
+
+---
+
+## Upcoming Implementation Phases (Tasks 5–8)
+
 * **Task 5:** Deploy isolated Application VM (`book-review-app-vm`) in `App_Subnet` (no public IP), initialize schema, and configure PM2 backend service.
 * **Task 6:** Configure Next.js frontend and Nginx reverse proxy on `book-review-web-vm`.
 * **Task 7:** Configure Public Load Balancer (Port 80) and Internal Load Balancer (Port 3001), plus Azure Monitor diagnostic metrics and alerts.
