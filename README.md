@@ -16,8 +16,9 @@
 3. [Network Segmentation & IP Addressing Scheme](#3-network-segmentation--ip-addressing-scheme)
 4. [Task 1: Architecture Design & Implementation Strategy](#task-1-architecture-design--implementation-strategy)
 5. [Task 2: Azure Network Foundation Deployment](#task-2-azure-network-foundation-deployment)
-6. [Preview of Task 3: Security & Network Access Control](#preview-of-task-3-security--network-access-control)
-7. [Author & Engineering Profile](#author--engineering-profile)
+6. [Task 3: Security & Network Access Control](#task-3-security--network-access-control)
+7. [Upcoming Implementation Phases (Tasks 4–8)](#upcoming-implementation-phases-tasks-48)
+8. [Author & Engineering Profile](#author--engineering-profile)
 
 ---
 
@@ -153,7 +154,7 @@ The following resources were provisioned within the dedicated Resource Group:
 
 5. **Azure NAT Gateway & Public IP:**
    * **NAT Gateway Name:** `Book_Review_NAT_GW`
-   * **Public IP Name:** `Book_Review_PIP` (Standard SKU, Static Allocation)
+   * **Public IP Name:** `Book_Review_PIP` (Standard SKU, Static Allocation, `4.221.200.108`)
    * **Subnet Associations:** Associated with both `Web_Subnet` and `App_Subnet`.
    * **Architectural Rationale:** The App VM operates with **no Public IP address** to maintain strict isolation from external threats. To download operating system patches via `apt`, fetch application code from GitHub, and install dependencies via `npm`, it requires outbound Internet access. The Azure NAT Gateway translates outbound requests to `Book_Review_PIP` while strictly dropping any unsolicited inbound traffic from the Internet.
 
@@ -167,33 +168,85 @@ Shows the newly created `BookReview_RG` containing the core network foundation: 
 ![Screenshot 2: Resource Group Overview](images/screenshot2_resource_group_overview.png)
 
 #### Screenshot 3: Virtual Network Subnet Configuration
-Displays `Book_Review_VNet` subnets showing CIDR ranges, usable addresses, and delegation of `DB_Subnet` to `Microsoft.DBforMySQL/flexibleServers`.
+Displays `Book_Review_VNet` subnets showing CIDR ranges, usable addresses (`251` for Web, `123` for App, `59` for DB), and delegation of `DB_Subnet` to `Microsoft.DBforMySQL/flexibleServers`.
 
 ![Screenshot 3: VNet Subnets Configuration](images/screenshot3_vnet_subnets_delegation.png)
 
 #### Screenshot 4: NAT Gateway Outbound Configuration & Subnet Association
-Demonstrates the `Book_Review_NAT_GW` associated with the dedicated Public IP `Book_Review_PIP` and attached to both `Web_Subnet` and `App_Subnet`.
+Demonstrates the `Book_Review_NAT_GW` associated with the dedicated Public IP `Book_Review_PIP` (`4.221.200.108`) and attached to both `Web_Subnet` and `App_Subnet`.
 
 ![Screenshot 4: NAT Gateway Configuration](images/screenshot4_nat_gateway_configuration.png)
 
 ---
 
-## Preview of Task 3: Security & Network Access Control
+## Task 3: Security & Network Access Control
 
-With the network foundation established, Task 3 introduces network-layer perimeter security:
-1. **Network Security Groups (NSGs):**
-   * `Book_Review_Web_NSG` associated with `Web_Subnet`:
-     * Allow inbound HTTP (Port 80) from `Internet` / `AzureLoadBalancer`.
-     * Allow inbound SSH (Port 22) restricted strictly to the administrator's public IP (`/32`).
-   * `Book_Review_App_NSG` associated with `App_Subnet`:
-     * Allow inbound TCP port 3001 only from `Web_Subnet` (`10.0.1.0/24`) and `AzureLoadBalancer`.
-     * Allow inbound SSH (Port 22) strictly from Web VM private IP (`10.0.1.4/32`).
-     * Explicitly deny all direct inbound internet traffic.
-   * `Book_Review_DB_NSG` associated with `DB_Subnet`:
-     * Allow inbound MySQL (Port 3306) strictly from `App_Subnet` (`10.0.2.0/25`).
-     * Block all other inbound network paths.
-2. **Compute Deployment:**
-   * Provision `book-review-web-vm` in `Web_Subnet` with private IP `10.0.1.4` and a management Public IP for SSH jump access.
+### 3.1 Network Security Group (NSG) Design Matrix
+To enforce strict least-privilege network access between tiers, three dedicated Network Security Groups are created and associated directly to their respective subnets:
+
+#### Web Tier NSG: `Book_Review_Web_NSG` (Associated to `Web_Subnet`)
+| Priority | Rule Name | Port | Protocol | Source | Destination | Action | Purpose |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **100** | `Allow-HTTP-Inbound` | `80` | TCP | `Internet` (or `Any`) | `VirtualNetwork` | Allow | Public user browser access to Nginx |
+| **110** | `Allow-SSH-Admin` | `22` | TCP | `Admin_IP/32` | `VirtualNetwork` | Allow | Bastion / Jump Host SSH management |
+| **120** | `Allow-Azure-LB-Probe` | `80` | TCP | `AzureLoadBalancer` | `VirtualNetwork` | Allow | Health probe monitoring from Public LB |
+| **Default** | `DenyAllInbound` | Any | Any | Any | Any | Deny | Azure default block rule |
+
+#### Application Tier NSG: `Book_Review_App_NSG` (Associated to `App_Subnet`)
+| Priority | Rule Name | Port | Protocol | Source | Destination | Action | Purpose |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **100** | `Allow-WebSubnet-to-App` | `3001` | TCP | `10.0.1.0/24` | `VirtualNetwork` | Allow | Internal API calls from Web VM / Internal LB |
+| **110** | `Allow-SSH-from-WebVM` | `22` | TCP | `10.0.1.4/32` | `VirtualNetwork` | Allow | SSH ProxyJump administration from Web VM |
+| **120** | `Allow-Azure-LB-Probe` | `3001` | TCP | `AzureLoadBalancer` | `VirtualNetwork` | Allow | Health probe monitoring from Internal LB |
+| **Default** | `DenyAllInbound` | Any | Any | Any | Any | Deny | Azure default block rule (blocks Internet) |
+
+#### Database Tier NSG: `Book_Review_DB_NSG` (Associated to `DB_Subnet`)
+| Priority | Rule Name | Port | Protocol | Source | Destination | Action | Purpose |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **100** | `Allow-MySQL-from-AppSubnet` | `3306` | TCP | `10.0.2.0/25` | `VirtualNetwork` | Allow | MySQL queries from App VM backend |
+| **Default** | `DenyAllInbound` | Any | Any | Any | Any | Deny | Blocks all non-App subnet connections |
+
+---
+
+### 3.2 Web Virtual Machine Provisioning (`book-review-web-vm`)
+
+The Web Virtual Machine functions as both the public presentation host and the administrative bastion jump host.
+
+#### Specifications:
+* **VM Name:** `book-review-web-vm`
+* **Resource Group:** `BookReview_RG`
+* **Region:** `South Africa North`
+* **Image:** Ubuntu Server 24.04 LTS (x64)
+* **Compute Size:** `Standard_B2s_v2` (2 vCPUs, 4 GiB Memory)
+* **Subnet:** `Web_Subnet` (`10.0.1.0/24`)
+* **Private IP:** Static `10.0.1.4`
+* **Public IP:** `pip-book-review-web-vm` (Standard SKU, Static)
+* **Authentication:** SSH Public Key (`azureuser`)
+* **NIC Security Group:** None (delegated to subnet NSG `Book_Review_Web_NSG`)
+
+---
+
+### 3.3 Task 3 Verification & Evidence
+
+#### Screenshot 5: Network Security Group Rules Comparison
+Shows the inbound rules configured across `Book_Review_Web_NSG`, `Book_Review_App_NSG`, and `Book_Review_DB_NSG` demonstrating least-privilege traffic flow.
+
+*(Screenshot 5 placeholder - Inbound Security Rules across Web, App, and DB NSGs)*
+
+#### Screenshot 6: Web Virtual Machine Overview & Network Interface
+Displays `book-review-web-vm` running in `Web_Subnet` with its private IP (`10.0.1.4`) and public IP, with the subscription ID masked.
+
+*(Screenshot 6 placeholder - Web VM Overview & Network Details)*
+
+---
+
+## Upcoming Implementation Phases (Tasks 4–8)
+
+* **Task 4:** Deploy Azure Database for MySQL Flexible Server with Private DNS in `DB_Subnet`.
+* **Task 5:** Deploy isolated Application VM (`book-review-app-vm`) in `App_Subnet` (no public IP), initialize schema, and configure PM2 backend service.
+* **Task 6:** Configure Next.js frontend and Nginx reverse proxy on `book-review-web-vm`.
+* **Task 7:** Configure Public Load Balancer (Port 80) and Internal Load Balancer (Port 3001), plus Azure Monitor diagnostic metrics and alerts.
+* **Task 8:** End-to-end integration validation, database persistence verification, and controlled fault recovery test.
 
 ---
 
