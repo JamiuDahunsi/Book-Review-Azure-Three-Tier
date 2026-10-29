@@ -18,8 +18,9 @@
 5. [Task 2: Azure Network Foundation Deployment](#task-2-azure-network-foundation-deployment)
 6. [Task 3: Security & Network Access Control](#task-3-security--network-access-control)
 7. [Task 4: Deploy Managed Database Tier (Azure MySQL Flexible Server)](#task-4-deploy-managed-database-tier-azure-mysql-flexible-server)
-8. [Upcoming Implementation Phases (Tasks 5–8)](#upcoming-implementation-phases-tasks-58)
-9. [Author & Engineering Profile](#author--engineering-profile)
+8. [Task 5: Deploy Application Tier (Private App VM)](#task-5-deploy-application-tier-private-app-vm)
+9. [Upcoming Implementation Phases (Tasks 6–8)](#upcoming-implementation-phases-tasks-68)
+10. [Author & Engineering Profile](#author--engineering-profile)
 
 ---
 
@@ -113,7 +114,7 @@ The Virtual Network uses the classless inter-domain routing (CIDR) block `10.0.0
 
 ### 1.1 Strategic Design Decisions
 * **Cloud Region Selection:** `South Africa North`. Selected based on validated capacity for burstable compute (`Standard_B2s_v2` / `Standard_B2ats_v2`), Azure MySQL Flexible Server burstable SKUs (`Standard_B1ms`), and minimal regional latency.
-* **Compute Capacity Planning:** Ubuntu 24.04 LTS instances running on dual-core burstable VMs (`Standard_B2s_v2`). This configuration provides adequate memory (4 GiB) and burstable CPU credits to compile Next.js production builds and execute Node.js Express workloads without memory exhaustion.
+* **Compute Capacity Planning:** Ubuntu 24.04 LTS instances running on dual-core burstable VMs (`Standard_B2s_v2` / `Standard_B2ats_v2`). This configuration provides adequate memory (4 GiB) and burstable CPU credits to compile Next.js production builds and execute Node.js Express workloads without memory exhaustion.
 * **High Availability & Single-Instance Tradeoff:** For this deployment capstone, one Virtual Machine is deployed per compute tier. Azure Standard Load Balancers monitor target instances via TCP health probes. While a single VM per tier introduces a maintenance window during virtual machine restart, the architecture is designed to scale horizontally into Azure Virtual Machine Scale Sets (VMSS) across multiple Availability Zones without architectural refactoring.
 * **Database Sizing & Data Integrity:** Azure Database for MySQL Flexible Server provisioned with 32 GiB storage and 1-day automated point-in-time recovery backup retention. Enforced SSL/TLS encryption (`require_secure_transport = ON`) guarantees protection against eavesdropping on internal database connections.
 * **Secret Management Strategy:** Application secrets (database credentials, JWT signing secrets, database host FQDN) are maintained in local `.env` configuration files with file permissions hardened to `chmod 600` (readable and writable only by the application owner). Sensitive values are excluded from Git version control via `.gitignore`.
@@ -231,9 +232,10 @@ The Web Virtual Machine functions as both the public presentation host and the a
 #### SSH ProxyJump Bastion Pathway
 The App VM resides in `App_Subnet` with **no public IP address**. All administrative access is conducted via OpenSSH `ProxyJump` using the Web VM as a secure bastion:
 ```bash
-# Connect securely to private App VM via Web VM Bastion
-ssh -i ~/.ssh/id_rsa -J azureuser@20.164.204.249 azureuser@10.0.2.4
+# Connect securely to private App VM via Web VM Bastion (keys stay local)
+ssh -i ~/.ssh/app-key.pem -J azureuser@20.164.204.249 azureuser@10.0.2.4
 ```
+*Crucial Security Standard:* Private keys are never uploaded or stored on the intermediate Web VM. The Web VM acts strictly as an encrypted TCP pipe relaying traffic between the local admin workstation and the App VM.
 
 #### Secret Management Baseline
 1. Sensitive configuration items (MySQL credentials, JWT signing secrets, database host endpoints) are stored exclusively in local `.env` configuration files on each VM.
@@ -267,18 +269,18 @@ Rather than maintaining an unmanaged MySQL installation on a self-hosted virtual
 
 Key technical advantages:
 * **Private Network Isolation:** Bound to `DB_Subnet (10.0.3.0/26)` via VNet Integration, with **zero public endpoint**.
-* **Private DNS Zone Integration:** Automatically provisions a private domain name (`*.private.mysql.database.azure.com`) linked to `Book_Review_VNet` for secure intra-VNet name resolution.
-* **Automated Backups & Recovery:** 7-day retention with point-in-time restoration capabilities.
+* **Private DNS Zone Integration:** Automatically provisions a private domain name (`book-review-db-jamiu.private.mysql.database.azure.com`) linked to `Book_Review_VNet` for secure intra-VNet name resolution.
+* **Automated Backups & Recovery:** Point-in-time restoration capabilities.
 * **In-Transit Encryption:** Enforces TLS 1.2+ encryption (`require_secure_transport = ON`) on TCP port 3306.
 
 ---
 
 ### 4.2 Configuration Parameters
 * **Resource Group:** `BookReview_RG`
-* **Server Name:** `book-review-db-jamiu` (or selected unique identifier)
+* **Server Name:** `book-review-db-jamiu`
 * **Region:** `South Africa North`
-* **Compute Tier:** Burstable (`Standard_B1ms` - 1 vCore, 2 GiB RAM)
-* **Storage:** 32 GiB (Minimum production baseline)
+* **Compute Tier:** Burstable (`Standard_B1ms` / General Purpose)
+* **MySQL Engine Version:** 8.4 LTS
 * **Connectivity Method:** **Private access (VNet Integration)**
 * **Virtual Network:** `Book_Review_VNet`
 * **Subnet:** `DB_Subnet (10.0.3.0/26)`
@@ -287,23 +289,59 @@ Key technical advantages:
 
 ---
 
-### 4.3 Verification & Evidence (Placeholders)
+### 4.3 Verification & Evidence
 
 #### Screenshot 7: Database Server Overview
-Displays the Azure Database for MySQL Flexible Server overview blade showing server name, status, and compute tier with sensitive subscription details obscured.
+Displays the Azure Database for MySQL Flexible Server overview blade confirming server status `Ready`, MySQL version 8.4, and location `South Africa North`.
 
-*(Screenshot 7 placeholder - Azure MySQL Flexible Server Overview)*
+![Screenshot 7: MySQL Server Overview](images/screenshot7_mysql_server_overview.png)
 
 #### Screenshot 8: Database Networking & Private DNS Integration
-Displays the database Networking blade confirming Private Access within `DB_Subnet` and active Private DNS Zone integration.
+Displays the database Networking blade confirming Private Access within `DB_Subnet` and active Private DNS Zone integration (`book-review-db-jamiu.private.mysql.database.azure.com`).
 
-*(Screenshot 8 placeholder - Azure MySQL Networking & Private DNS)*
+![Screenshot 8: MySQL Networking & Private DNS](images/screenshot8_mysql_networking_private_dns.png)
 
 ---
 
-## Upcoming Implementation Phases (Tasks 5–8)
+## Task 5: Deploy Application Tier (Private App VM)
 
-* **Task 5:** Deploy isolated Application VM (`book-review-app-vm`) in `App_Subnet` (no public IP), initialize schema, and configure PM2 backend service.
+### 5.1 Architecture & Provisioning
+The Application VM hosts the Node.js/Express REST API and is completely shielded from public exposure.
+
+#### Configuration Profile:
+* **VM Name:** `book-review-app-vm`
+* **Resource Group:** `BookReview_RG`
+* **Region:** `South Africa North`
+* **Image:** Ubuntu Server 24.04 LTS - x64 Gen2
+* **Compute Size:** `Standard_B2ats_v2` (2 vCPUs, 1–2 GiB Memory)
+* **Virtual Network:** `Book_Review_VNet`
+* **Subnet:** `App_Subnet (10.0.2.0/25)`
+* **Private IP Address:** `10.0.2.4`
+* **Public IP Address:** **None** (Outbound egress handled via `Book_Review_NAT_GW` with Public IP `4.221.200.108`)
+* **NIC Security Group:** None (delegated to subnet NSG `App_NSG`)
+
+---
+
+### 5.2 Verification & Evidence
+
+#### Screenshot 9: Application VM Overview (Zero Public IP)
+Displays `book-review-app-vm` running in `App_Subnet` with private IP `10.0.2.4` and no public IP assigned (outbound egress mapped exclusively to `Book_Review_NAT_GW`).
+
+![Screenshot 9: App VM Overview](images/screenshot9_app_vm_overview.png)
+
+#### Screenshot 10: SSH ProxyJump Connection (Local Admin -> Web VM -> App VM)
+*(Screenshot 10 placeholder - Terminal output displaying successful SSH ProxyJump into App VM)*
+
+#### Screenshot 11: MySQL Database Initialization
+*(Screenshot 11 placeholder - MySQL CLI on App VM creating database and application user)*
+
+#### Screenshot 12: Backend Runtime & Local Health Probe
+*(Screenshot 12 placeholder - Node.js API supervised by PM2 responding on port 3001)*
+
+---
+
+## Upcoming Implementation Phases (Tasks 6–8)
+
 * **Task 6:** Configure Next.js frontend and Nginx reverse proxy on `book-review-web-vm`.
 * **Task 7:** Configure Public Load Balancer (Port 80) and Internal Load Balancer (Port 3001), plus Azure Monitor diagnostic metrics and alerts.
 * **Task 8:** End-to-end integration validation, database persistence verification, and controlled fault recovery test.
