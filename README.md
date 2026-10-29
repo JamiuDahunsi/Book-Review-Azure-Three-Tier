@@ -19,8 +19,9 @@
 6. [Task 3: Security & Network Access Control](#task-3-security--network-access-control)
 7. [Task 4: Deploy Managed Database Tier (Azure MySQL Flexible Server)](#task-4-deploy-managed-database-tier-azure-mysql-flexible-server)
 8. [Task 5: Deploy Application Tier (Private App VM)](#task-5-deploy-application-tier-private-app-vm)
-9. [Upcoming Implementation Phases (Tasks 6–8)](#upcoming-implementation-phases-tasks-68)
-10. [Author & Engineering Profile](#author--engineering-profile)
+9. [Task 6: Deploy Presentation Tier (Web VM & Nginx Reverse Proxy)](#task-6-deploy-presentation-tier-web-vm--nginx-reverse-proxy)
+10. [Upcoming Implementation Phases (Tasks 7–8)](#upcoming-implementation-phases-tasks-78)
+11. [Author & Engineering Profile](#author--engineering-profile)
 
 ---
 
@@ -330,19 +331,48 @@ Displays `book-review-app-vm` running in `App_Subnet` with private IP `10.0.2.4`
 ![Screenshot 9: App VM Overview](images/screenshot9_app_vm_overview.png)
 
 #### Screenshot 10: SSH ProxyJump Connection (Local Admin -> Web VM -> App VM)
-*(Screenshot 10 placeholder - Terminal output displaying successful SSH ProxyJump into App VM)*
+Displays the successful SSH ProxyJump connection from the local administrator workstation jumping through `book-review-web-vm` (`20.164.204.249`) to the isolated `book-review-app-vm` (`10.0.2.4`).
 
-#### Screenshot 11: MySQL Database Initialization
-*(Screenshot 11 placeholder - MySQL CLI on App VM creating database and application user)*
+![Screenshot 10: SSH ProxyJump Connection](images/screenshot10_ssh_proxyjump.png)
 
-#### Screenshot 12: Backend Runtime & Local Health Probe
-*(Screenshot 12 placeholder - Node.js API supervised by PM2 responding on port 3001)*
+#### Screenshot 11: MySQL Database Initialization & Least-Privilege User Creation
+Displays the creation of the application database `book_review_db` and dedicated non-root user `bookreview_app` over the private Azure network interface (`10.0.3.4`).
+
+![Screenshot 11: MySQL Database Creation](images/screenshot11_mysql_database_creation.png)
+
+#### Screenshot 12: Backend Runtime & Local Health Probe (PM2 Process Supervision)
+Displays the Express REST API supervised by PM2 (`online` status) and responding to a local health probe on port 3001 with `📚 Book Review API is running...`.
+
+![Screenshot 12: Backend Health Check & PM2](images/screenshot12_backend_health_check.png)
 
 ---
 
-## Upcoming Implementation Phases (Tasks 6–8)
+## Task 6: Deploy Presentation Tier (Web VM & Nginx Reverse Proxy)
 
-* **Task 6:** Configure Next.js frontend and Nginx reverse proxy on `book-review-web-vm`.
+### 6.1 Overview & Architecture Rationale
+The Presentation Tier handles all client-facing traffic. It hosts:
+1. **Next.js 15 Frontend:** Running locally on port `3000` (Server-Side Rendering and React client components).
+2. **Nginx Reverse Proxy:** Listening on TCP port `80`, terminating public requests, and routing traffic:
+   * Web pages (`/`) are forwarded to the local Next.js frontend (`http://127.0.0.1:3000`).
+   * API requests (`/api/*`) are forwarded internally to the backend application endpoint (`http://10.0.2.10:3001` or App VM `http://10.0.2.4:3001`).
+
+---
+
+### 6.2 Verification & Evidence (Placeholders)
+
+#### Screenshot 13: Next.js Production Build
+*(Screenshot 13 placeholder - Next.js production build output and PM2 status on Web VM)*
+
+#### Screenshot 14: Nginx Reverse Proxy Configuration
+*(Screenshot 14 placeholder - Nginx site configuration forwarding port 80 to 3000 and /api to internal endpoint)*
+
+#### Screenshot 15: Direct Web VM Verification
+*(Screenshot 15 placeholder - Browser accessing Web VM public IP showing Book Review App)*
+
+---
+
+## Upcoming Implementation Phases (Tasks 7–8)
+
 * **Task 7:** Configure Public Load Balancer (Port 80) and Internal Load Balancer (Port 3001), plus Azure Monitor diagnostic metrics and alerts.
 * **Task 8:** End-to-end integration validation, database persistence verification, and controlled fault recovery test.
 
