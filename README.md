@@ -1,4 +1,4 @@
-# Production Three-Tier Web Application Deployment on Microsoft Azure
+# Production Three-Tier Web Application on Microsoft Azure
 
 [![Azure](https://img.shields.io/badge/Microsoft_Azure-Cloud_Infrastructure-0078D4?logo=microsoftazure&logoColor=white)](https://azure.microsoft.com/)
 [![Ubuntu](https://img.shields.io/badge/Ubuntu_24.04_LTS-Operating_System-E95420?logo=ubuntu&logoColor=white)](https://ubuntu.com/)
@@ -6,51 +6,51 @@
 [![Node.js](https://img.shields.io/badge/Node.js_Express-Backend_API-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![MySQL](https://img.shields.io/badge/Azure_Database_for_MySQL-Flexible_Server-4479A1?logo=mysql&logoColor=white)](https://azure.microsoft.com/)
 [![Nginx](https://img.shields.io/badge/Nginx-Reverse_Proxy-009639?logo=nginx&logoColor=white)](https://nginx.org/)
-[![Networking](https://img.shields.io/badge/Azure_VNet-Subnet_Segmentation-blue)](https://azure.microsoft.com/)
 
 ---
 
 ## Table of Contents
-1. [Executive Summary & Scenario](#1-executive-summary--scenario)
-2. [End-to-End Architectural Blueprint](#2-end-to-end-architectural-blueprint)
-3. [Network Segmentation & IP Addressing Scheme](#3-network-segmentation--ip-addressing-scheme)
-4. [Task 1: Architecture Design & Implementation Strategy](#task-1-architecture-design--implementation-strategy)
-5. [Task 2: Azure Network Foundation Deployment](#task-2-azure-network-foundation-deployment)
-6. [Task 3: Security & Network Access Control](#task-3-security--network-access-control)
-7. [Task 4: Deploy Managed Database Tier (Azure MySQL Flexible Server)](#task-4-deploy-managed-database-tier-azure-mysql-flexible-server)
-8. [Task 5: Deploy Application Tier (Private App VM)](#task-5-deploy-application-tier-private-app-vm)
-9. [Task 6: Deploy Presentation Tier (Web VM & Nginx Reverse Proxy)](#task-6-deploy-presentation-tier-web-vm--nginx-reverse-proxy)
-10. [Task 7: Configure Dual Load Balancers & Observability](#task-7-configure-dual-load-balancers--observability)
-11. [Task 8: End-to-End Validation & Fault Recovery](#task-8-end-to-end-validation--fault-recovery)
-12. [Author & Engineering Profile](#author--engineering-profile)
+1. [Project Overview and Objectives](#1-project-overview-and-objectives)
+2. [End-to-End System Architecture](#2-end-to-end-system-architecture)
+3. [Network Segmentation and IP Design](#3-network-segmentation-and-ip-design)
+4. [Task 1: Architecture Blueprint and Technical Strategy](#task-1-architecture-blueprint-and-technical-strategy)
+5. [Task 2: Virtual Network and Egress Infrastructure](#task-2-virtual-network-and-egress-infrastructure)
+6. [Task 3: Network Security Groups and Web Tier Provisioning](#task-3-network-security-groups-and-web-tier-provisioning)
+7. [Task 4: Managed Database Tier Deployment](#task-4-managed-database-tier-deployment)
+8. [Task 5: Application Tier Deployment and Bastion Routing](#task-5-application-tier-deployment-and-bastion-routing)
+9. [Task 6: Presentation Tier and Nginx Reverse Proxy](#task-6-presentation-tier-and-nginx-reverse-proxy)
+10. [Task 7: Dual Load Balancers and Infrastructure Monitoring](#task-7-dual-load-balancers-and-infrastructure-monitoring)
+11. [Task 8: End-to-End Validation, Data Persistence, and Fault Recovery](#task-8-end-to-end-validation-data-persistence-and-fault-recovery)
+12. [Architectural Takeaways and Best Practices](#12-architectural-takeaways-and-best-practices)
+13. [Author Profile](#author-profile)
 
 ---
 
-## 1. Executive Summary & Scenario
+## 1. Project Overview and Objectives
 
-### Real-World Business Context
-Modern cloud architectures require strict isolation between public presentation layers, internal business logic, and backend databases. In this enterprise project, the **Book Review Application** is migrated and deployed into a production-grade, highly secure, three-tier environment on **Microsoft Azure**.
+Enterprise production systems require strict separation of concerns across infrastructure layers. Direct internet access to application logic and database engines creates unnecessary exposure and complicates compliance.
 
-The deployment enforces zero direct public ingress to backend compute and database tiers, implements managed egress routing via Azure NAT Gateway, provides resilient layer-4 traffic distribution through dual Azure Load Balancers (Public and Internal), and enforces end-to-end least-privilege access control.
+This project delivers a complete three-tier deployment of a Book Review application on Microsoft Azure within the South Africa North region. The environment enforces zero direct public ingress to backend compute and data tiers, provides controlled outbound internet connectivity via an Azure NAT Gateway, balances incoming traffic through dual Azure Load Balancers (Public and Internal), and guarantees automated service recovery.
 
-### Key Engineering Objectives
-* **Logical & Network Segmentation:** Isolate Presentation, Application, and Database tiers across distinct, non-overlapping Virtual Network subnets.
-* **Controlled Public Ingress:** Expose only an Azure Standard Public Load Balancer to the public internet on TCP port 80.
-* **Zero Public Exposure for Backend & Database:** The Application VM possesses no Public IP address; the Azure Database for MySQL Flexible Server operates with private access only inside a delegated subnet.
-* **Controlled Outbound Internet Egress:** Provide package updates (`apt`), Node runtime packages (`npm`), and repository downloads via an Azure NAT Gateway without allowing unsolicited inbound traffic.
-* **Bastion Jump Host Administration:** Restrict administrative SSH access to the Web VM, and manage the private App VM exclusively via SSH ProxyJump (`-J`).
-* **Resilient Internal Routing:** Route all frontend-to-backend API traffic through an Azure Standard Internal Load Balancer assigned a reserved private IP (`10.0.2.10:3001`).
+### Primary Objectives
+* **Strict Network Segmentation:** Separate the presentation, application, and database workloads across dedicated subnets within a single Virtual Network (`10.0.0.0/16`).
+* **Shielded Compute and Data:** The application VM has zero public IP addresses. The MySQL database operates exclusively through private endpoints inside a delegated subnet.
+* **Controlled Ingress:** All user traffic enters strictly through an Azure Standard Public Load Balancer on TCP port 80.
+* **Controlled Egress:** All outbound connections for operating system updates, package downloads, and repository access route through an Azure NAT Gateway. Unsolicited inbound traffic from the internet is dropped by default.
+* **Secure Bastion Administration:** Direct SSH access is restricted to the Web VM. The private Application VM is managed exclusively via an OpenSSH ProxyJump bastion pattern, keeping private keys on the administrator workstation.
+* **Inter-Tier Private Load Balancing:** Decouple the web frontend and API tier using an internal Azure Load Balancer configured with a private static frontend IP (`10.0.2.10:3001`).
+* **Resilience and Auto-Healing:** Ensure services restart automatically on system reboot through systemd and PM2 process supervision.
 
 ---
 
-## 2. End-to-End Architectural Blueprint
+## 2. End-to-End System Architecture
 
-### Architecture Diagram
-The diagram below illustrates the complete component topology, network boundaries, security perimeters, and bidirectional traffic flow.
+### Architectural Topology Diagram
+The diagram below illustrates the network perimeter, subnet layout, security rules, and request flows through the three tiers.
 
 ![Azure Three-Tier Architecture Diagram](images/screenshot1_architecture_diagram.png)
 
-### High-Level Topology Walkthrough
+### Request and Network Flow Summary
 ```mermaid
 flowchart TD
     subgraph Internet ["Public Internet"]
@@ -58,248 +58,172 @@ flowchart TD
         Admin["DevOps Workstation (Admin)"]
     end
 
-    subgraph Azure ["Microsoft Azure Cloud (South Africa North) | BookReview_RG"]
+    subgraph Azure ["Microsoft Azure Cloud (South Africa North) | Resource Group: BookReview_RG"]
         subgraph VNet ["Virtual Network: Book_Review_VNet (10.0.0.0/16)"]
             
             subgraph WebTier ["Presentation Tier: Web_Subnet (10.0.1.0/24)"]
-                PubLB["Azure Public Load Balancer<br/>Frontend PIP :80"]
-                WebVM["Web VM: book-review-web-vm (10.0.1.4)<br/>• Nginx Reverse Proxy (:80)<br/>• Next.js 15 SSR/SPA (:3000)"]
+                PubLB["Azure Public Load Balancer<br/>Frontend IP: 20.87.111.190 :80"]
+                WebVM["Web VM: book-review-web-vm (10.0.1.4)<br/>Nginx Reverse Proxy (:80)<br/>Next.js 15 Runtime (:3000)"]
             end
 
             subgraph AppTier ["Application Tier: App_Subnet (10.0.2.0/25)"]
                 IntLB["Azure Internal Load Balancer<br/>Private Frontend IP: 10.0.2.10 :3001"]
-                AppVM["App VM: book-review-app-vm (10.0.2.4)<br/>• NO Public IP Address<br/>• Node.js / Express API (:3001)<br/>• Managed by PM2 Runtime"]
+                AppVM["App VM: book-review-app-vm (10.0.2.4)<br/>No Public IP<br/>Node.js Express API (:3001)<br/>Supervised by PM2"]
             end
 
             subgraph DBTier ["Data Tier: DB_Subnet (10.0.3.0/26)"]
-                MySQL["Azure Database for MySQL Flexible Server<br/>• Private Access & DNS Zone<br/>• Port 3306 (SSL/TLS Required)<br/>• Database: book_review_db"]
+                MySQL["Azure Database for MySQL Flexible Server<br/>Private IP: 10.0.3.4 :3306<br/>Private DNS Integration<br/>Mandatory TLS/SSL Encryption"]
             end
 
-            NAT["Azure NAT Gateway: Book_Review_NAT_GW<br/>Public IP: Book_Review_PIP (4.221.200.108)<br/>(Outbound Updates for Web & App Subnets)"]
+            NAT["Azure NAT Gateway: Book_Review_NAT_GW<br/>Public IP: 4.221.200.108<br/>Secure Egress for Web and App Subnets"]
         end
     end
 
-    %% Ingress Flow
-    User -->|HTTP :80| PubLB
-    PubLB -->|Forward TCP :80| WebVM
+    %% Inbound Ingress
+    User -->|HTTP TCP 80| PubLB
+    PubLB -->|Route TCP 80| WebVM
     WebVM -->|Local Loopback Proxy :3000| WebVM
-    WebVM -->|API Route /api/* :3001| IntLB
-    IntLB -->|Forward TCP :3001| AppVM
+    WebVM -->|API Calls /api/* :3001| IntLB
+    IntLB -->|Route TCP 3001| AppVM
     AppVM -->|MySQL Protocol :3306 (TLS Enforced)| MySQL
 
-    %% Egress Flow
-    WebVM -.->|Outbound Egress Only| NAT
-    AppVM -.->|Outbound Egress Only| NAT
+    %% Outbound Egress
+    WebVM -.->|Outbound Updates Only| NAT
+    AppVM -.->|Outbound Updates Only| NAT
 
-    %% Administrative Flow
-    Admin -->|SSH :22 Direct| WebVM
-    Admin -.->|SSH ProxyJump -J via Web VM| AppVM
+    %% Administration
+    Admin -->|SSH TCP 22 Direct| WebVM
+    Admin -.->|SSH ProxyJump via Web VM| AppVM
 ```
 
 ---
 
-## 3. Network Segmentation & IP Addressing Scheme
+## 3. Network Segmentation and IP Design
 
-The Virtual Network uses the classless inter-domain routing (CIDR) block `10.0.0.0/16`. It is segmented into three non-overlapping subnets sized according to workload characteristics, scalability requirements, and Azure-reserved IP constraints:
+The Virtual Network uses the CIDR block `10.0.0.0/16`. Subnet boundaries were allocated according to tier requirements, private endpoint delegation rules, and Azure internal reservations.
 
-| Subnet Name | CIDR Block | Total IPs | Azure Reserved IPs | Usable Host IPs | Purpose & Associated Resources | Subnet NSG | Delegation |
+| Subnet Name | CIDR Block | Total Addresses | Azure Reserved | Usable Addresses | Associated Workloads | Assigned NSG | Subnet Delegation |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`Web_Subnet`** | `10.0.1.0/24` | 256 | 5 | 251 | Public Load Balancer backend pool, Web VM (`10.0.1.4`) | `Web_NSG` | None |
-| **`App_Subnet`** | `10.0.2.0/25` | 128 | 5 | 123 | Internal Load Balancer (`10.0.2.10`), Private App VM (`10.0.2.4`) | `App_NSG` | None |
-| **`DB_Subnet`** | `10.0.3.0/26` | 64 | 5 | 59 | Azure Database for MySQL Flexible Server & Private DNS | `DB_NSG` | `Microsoft.DBforMySQL/flexibleServers` |
+| **`App_Subnet`** | `10.0.2.0/25` | 128 | 5 | 123 | Internal Load Balancer frontend (`10.0.2.10`), Private App VM (`10.0.2.4`) | `App_NSG` | None |
+| **`DB_Subnet`** | `10.0.3.0/26` | 64 | 5 | 59 | Azure MySQL Flexible Server private endpoint (`10.0.3.4`) | `DB_NSG` | `Microsoft.DBforMySQL/flexibleServers` |
 
-> **Azure Subnet Address Reservation Rule:** In any Azure Virtual Network subnet, Azure reserves the first four IP addresses (`.0` network, `.1` default gateway, `.2`/`.3` Azure DNS mapping) and the last IP address (`.255` broadcast) for cloud platform operations.
-
----
-
-## Task 1: Architecture Design & Implementation Strategy
-
-### 1.1 Strategic Design Decisions
-* **Cloud Region Selection:** `South Africa North`. Selected based on validated capacity for burstable compute (`Standard_B2s_v2` / `Standard_B2ats_v2`), Azure MySQL Flexible Server burstable SKUs (`Standard_B1ms`), and minimal regional latency.
-* **Compute Capacity Planning:** Ubuntu 24.04 LTS instances running on dual-core burstable VMs (`Standard_B2s_v2` / `Standard_B2ats_v2`). This configuration provides adequate memory (4 GiB) and burstable CPU credits to compile Next.js production builds and execute Node.js Express workloads without memory exhaustion.
-* **High Availability & Single-Instance Tradeoff:** For this deployment capstone, one Virtual Machine is deployed per compute tier. Azure Standard Load Balancers monitor target instances via TCP health probes. While a single VM per tier introduces a maintenance window during virtual machine restart, the architecture is designed to scale horizontally into Azure Virtual Machine Scale Sets (VMSS) across multiple Availability Zones without architectural refactoring.
-* **Database Sizing & Data Integrity:** Azure Database for MySQL Flexible Server provisioned with 32 GiB storage and 1-day automated point-in-time recovery backup retention. Enforced SSL/TLS encryption (`require_secure_transport = ON`) guarantees protection against eavesdropping on internal database connections.
-* **Secret Management Strategy:** Application secrets (database credentials, JWT signing secrets, database host FQDN) are maintained in local `.env` configuration files with file permissions hardened to `chmod 600` (readable and writable only by the application owner). Sensitive values are excluded from Git version control via `.gitignore`.
-* **Disaster Recovery & Operational Continuity:** Azure MySQL automated backups support point-in-time restoration. Application runtimes are supervised by PM2 process manager configured with systemd startup services to ensure automatic recovery upon instance restart.
-
-### 1.2 Evidence of Execution
-> **Screenshot 1:** Full three-tier architecture diagram displaying the public entry point, tier boundaries, network security isolation, and data flow paths.
-
-![Screenshot 1: Architecture Diagram](images/screenshot1_architecture_diagram.png)
+Azure reserves five IP addresses in each subnet:
+* `.0`: Network address.
+* `.1`: Default gateway address.
+* `.2` and `.3`: Azure DNS mapping addresses.
+* `.255`: Broadcast address.
 
 ---
 
-## Task 2: Azure Network Foundation Deployment
+## Task 1: Architecture Blueprint and Technical Strategy
 
-### 2.1 Overview & Technical Purpose
-Task 2 provisions the foundational networking infrastructure that supports all subsequent compute, load balancing, and database resources. Complete isolation between tiers is established at the network layer.
+### 1.1 Technical Decisions
+* **Target Cloud Region:** South Africa North (`southafricanorth`). Selected for burstable VM capacity (`Standard_B2s_v2` and `Standard_B2ats_v2`), availability of MySQL Flexible Server burstable compute (`Standard_B1ms`), and low latency.
+* **Compute Capacity Planning:** Ubuntu 24.04 LTS instances running on dual-core burstable virtual machines. This tier provides sufficient RAM and burstable CPU credits to compile Next.js production bundles and handle Node.js Express workloads reliably.
+* **High Availability Considerations:** One VM is provisioned per compute tier for this capstone implementation. Azure Standard Load Balancers monitor both hosts via TCP health probes. While a single host per tier introduces a brief maintenance window during restarts, the architecture is designed to scale horizontally using Virtual Machine Scale Sets (VMSS) across multiple Availability Zones without requiring code changes.
+* **Database Isolation and Integrity:** Managed Azure Database for MySQL Flexible Server provisioned with 32 GiB storage and 1-day automated point-in-time recovery backup retention. Enforced SSL/TLS encryption (`require_secure_transport = ON`) protects data in transit between the application tier and the database.
+* **Secret Management Strategy:** All database passwords, tokens, and endpoints are maintained in local `.env` configuration files with strict file permissions (`chmod 600`), owned by the application service user. Sensitive values are excluded from version control using `.gitignore`.
 
-### 2.2 Provisioned Network Resources
-The following resources were provisioned within the dedicated Resource Group:
+### 1.2 Evidence
+#### Screenshot 1: Complete Architecture Blueprint
+The comprehensive architecture diagram showing the entire network layout, security boundaries, and communication paths.
 
-1. **Dedicated Resource Group:**
-   * **Name:** `BookReview_RG`
-   * **Location:** `southafricanorth`
-   * **Purpose:** Logical container encapsulating all network, compute, database, and load balancing assets for lifecycle and security management.
-
-2. **Virtual Network (VNet):**
-   * **Name:** `Book_Review_VNet`
-   * **Address Space:** `10.0.0.0/16` (65,536 addresses)
-   * **Location:** `southafricanorth`
-
-3. **Subnet Segmentation & Delegation:**
-   * **`Web_Subnet` (`10.0.1.0/24`):** Designated for the public-facing Nginx reverse proxy and Next.js frontend VM.
-   * **`App_Subnet` (`10.0.2.0/25`):** Designated for the private Node.js/Express API VM and the Internal Load Balancer private frontend.
-   * **`DB_Subnet` (`10.0.3.0/26`):** Dedicated exclusively to the Azure Database for MySQL Flexible Server. Delegated to `Microsoft.DBforMySQL/flexibleServers`, granting Azure Resource Provider permission to inject the managed database network interface directly into the private subnet.
-
-4. **Internal Load Balancer Static IP Reservation:**
-   * **Reserved IP:** `10.0.2.10` in `App_Subnet` (`10.0.2.0/25`).
-   * **Purpose:** Serves as the static internal endpoint for API requests originating from Nginx on the Web VM. Excluded from dynamic VM allocation to prevent IP conflicts.
-
-5. **Azure NAT Gateway & Public IP:**
-   * **NAT Gateway Name:** `Book_Review_NAT_GW`
-   * **Public IP Name:** `Book_Review_PIP` (Standard SKU, Static Allocation, `4.221.200.108`)
-   * **Subnet Associations:** Associated with both `Web_Subnet` and `App_Subnet`.
-   * **Architectural Rationale:** The App VM operates with **no Public IP address** to maintain strict isolation from external threats. To download operating system patches via `apt`, fetch application code from GitHub, and install dependencies via `npm`, it requires outbound Internet access. The Azure NAT Gateway translates outbound requests to `Book_Review_PIP` while strictly dropping any unsolicited inbound traffic from the Internet.
+![Screenshot 1: Architecture Blueprint](images/screenshot1_architecture_diagram.png)
 
 ---
 
-### 2.3 Verification & Evidence
+## Task 2: Virtual Network and Egress Infrastructure
 
+### 2.1 Provisioned Resources
+1. **Resource Group:** `BookReview_RG` created in region `southafricanorth`.
+2. **Virtual Network:** `Book_Review_VNet` provisioned with address space `10.0.0.0/16`.
+3. **Subnets:**
+   * `Web_Subnet`: `10.0.1.0/24`
+   * `App_Subnet`: `10.0.2.0/25`
+   * `DB_Subnet`: `10.0.3.0/26`, delegated to `Microsoft.DBforMySQL/flexibleServers`
+4. **Internal Static IP Reservation:** Static IP `10.0.2.10` reserved in `App_Subnet` for the Internal Load Balancer frontend.
+5. **Azure NAT Gateway:** `Book_Review_NAT_GW` created with static public IP `Book_Review_PIP` (`4.221.200.108`) and associated with both `Web_Subnet` and `App_Subnet`. This allows the private App VM to fetch OS patches and dependencies securely without exposing an inbound public IP.
+
+### 2.2 Evidence
 #### Screenshot 2: Resource Group Overview
-Shows the newly created `BookReview_RG` containing the core network foundation: `Book_Review_VNet`, `Book_Review_NAT_GW`, and `Book_Review_PIP`.
+Shows `BookReview_RG` with the provisioned VNet, NAT Gateway, and Public IP.
 
 ![Screenshot 2: Resource Group Overview](images/screenshot2_resource_group_overview.png)
 
 #### Screenshot 3: Virtual Network Subnet Configuration
-Displays `Book_Review_VNet` subnets showing CIDR ranges, usable addresses (`251` for Web, `123` for App, `59` for DB), and delegation of `DB_Subnet` to `Microsoft.DBforMySQL/flexibleServers`.
+Displays the three subnets, their CIDR ranges, available IP allocations, and the database delegation on `DB_Subnet`.
 
-![Screenshot 3: VNet Subnets Configuration](images/screenshot3_vnet_subnets_delegation.png)
+![Screenshot 3: VNet Subnets](images/screenshot3_vnet_subnets_delegation.png)
 
-#### Screenshot 4: NAT Gateway Outbound Configuration & Subnet Association
-Demonstrates the `Book_Review_NAT_GW` associated with the dedicated Public IP `Book_Review_PIP` (`4.221.200.108`) and attached to both `Web_Subnet` and `App_Subnet`.
+#### Screenshot 4: NAT Gateway Outbound Configuration
+Shows `Book_Review_NAT_GW` associated with public IP `4.221.200.108` and linked to `Web_Subnet` and `App_Subnet`.
 
 ![Screenshot 4: NAT Gateway Configuration](images/screenshot4_nat_gateway_configuration.png)
 
 ---
 
-## Task 3: Security & Network Access Control
+## Task 3: Network Security Groups and Web Tier Provisioning
 
-### 3.1 Network Security Group (NSG) Implementation Matrix
-To enforce strict least-privilege network access between tiers, three dedicated Network Security Groups were created and associated directly to their respective subnets:
+### 3.1 Network Security Group Rules
 
-#### A. Web Tier NSG: `Web_NSG` (Associated to `Web_Subnet`)
-* **Subnet Binding:** `Web_Subnet (10.0.1.0/24)`
-* **Active Inbound Rules:**
-  * **`SSH_and_HTTP` (Priority 100):** TCP ports `22, 80` allowed from source `*` (Any).  
-    * *Engineering Context:* Allows public user HTTP access to port 80. For SSH administration during active staging across dynamic administrator IP locations, port 22 is permitted globally with mandatory SSH public key authentication (password authentication disabled at OS level).
-  * **`Allow_LB_Probe_Web` (Priority 110):** TCP port `80` allowed from service tag `AzureLoadBalancer` to ensure reliable health check status monitoring.
+#### Web Tier: `Web_NSG` (Bound to `Web_Subnet`)
+* **Rule 100 (`SSH_and_HTTP`):** Allows TCP ports 22 and 80 from source `*`. Port 80 serves public web traffic. Port 22 provides SSH access for administration with mandatory key-based authentication (passwords disabled at OS level).
+* **Rule 110 (`Allow_LB_Probe_Web`):** Allows TCP port 80 from service tag `AzureLoadBalancer` for load balancer health probes.
 
-#### B. Application Tier NSG: `App_NSG` (Associated to `App_Subnet`)
-* **Subnet Binding:** `App_Subnet (10.0.2.0/25)`
-* **Active Inbound Rules:**
-  * **`Allow_3001_and_22` (Priority 100):** Ports `3001` (Express API) and `22` (SSH) allowed strictly from `10.0.1.0/24` (`Web_Subnet`).  
-    * *Engineering Context:* Ensures zero external inbound connections can reach the backend. The API is reachable only from the Web tier, and SSH management is strictly constrained to the Bastion ProxyJump pathway originating from the Web VM.
-  * **`Allow-LB-Probe-App` (Priority 110):** Port `3001` allowed from `AzureLoadBalancer` for Internal Load Balancer health verification.
+#### Application Tier: `App_NSG` (Bound to `App_Subnet`)
+* **Rule 100 (`Allow_3001_and_22`):** Allows TCP ports 3001 and 22 strictly from `10.0.1.0/24` (`Web_Subnet`). No traffic from the public internet can reach this subnet. SSH administration is constrained to the Web VM bastion route.
+* **Rule 110 (`Allow-LB-Probe-App`):** Allows TCP port 3001 from `AzureLoadBalancer` for Internal Load Balancer health verification.
 
-#### C. Database Tier NSG: `DB_NSG` (Associated to `DB_Subnet`)
-* **Subnet Binding:** `DB_Subnet (10.0.3.0/26)`
-* **Active Inbound Rules:**
-  * **`App_to_DB_rule` (Priority 100):** TCP port `3306` (MySQL) allowed strictly from `10.0.2.0/25` (`App_Subnet`).  
-    * *Engineering Context:* Completely isolates the data tier from the web tier and public internet; only backend application instances residing within the application subnet CIDR can establish database sockets.
+#### Database Tier: `DB_NSG` (Bound to `DB_Subnet`)
+* **Rule 100 (`App_to_DB_rule`):** Allows TCP port 3306 (MySQL) strictly from source `10.0.2.0/25` (`App_Subnet`). Direct connections from the web tier or the public internet are blocked.
 
----
+### 3.2 Web Virtual Machine Profile (`book-review-web-vm`)
+* **Size:** `Standard_B2s_v2` / `Standard_B2ats_v2` (2 vCPUs, Ubuntu 24.04 LTS)
+* **Private IP:** `10.0.1.4` (in `Web_Subnet`)
+* **Public IP:** `20.164.204.249` (Standard static allocation)
+* **Authentication:** SSH public key (`azureuser`)
 
-### 3.2 Web Virtual Machine Provisioning (`book-review-web-vm`)
-
-The Web Virtual Machine functions as both the public presentation host and the administrative bastion jump host.
-
-#### Configuration Profile:
-* **VM Name:** `book-review-web-vm`
-* **Resource Group:** `BookReview_RG`
-* **Region:** `South Africa North`
-* **Image:** Ubuntu Server 24.04 LTS - x64 Gen2
-* **Compute Size:** `Standard_B2s_v2` / `Standard_B2ats_v2` (2 vCPUs, 1–4 GiB Memory)
-* **Virtual Network:** `Book_Review_VNet`
-* **Subnet:** `Web_Subnet` (`10.0.1.0/24`)
-* **Private IP Address:** `10.0.1.4` (Static / Dynamic first host allocation)
-* **Public IP Address:** `20.164.204.249` (Standard SKU, Static, `pip-book-review-web-vm`)
-* **Authentication Method:** SSH Public Key (`azureuser`)
-* **NIC Security Group:** None (delegated to subnet NSG `Web_NSG` for centralized rule enforcement)
-
----
-
-### 3.3 Administrative Bastion & Secret Management Strategy
-
-#### SSH ProxyJump Bastion Pathway
-The App VM resides in `App_Subnet` with **no public IP address**. All administrative access is conducted via OpenSSH `ProxyJump` using the Web VM as a secure bastion:
+### 3.3 Bastion Access Pattern
+Because `book-review-app-vm` has no public IP address, all administrative access uses an OpenSSH ProxyJump command:
 ```bash
-# Connect securely to private App VM via Web VM Bastion (keys stay local)
-ssh -i ~/.ssh/app-key.pem -J azureuser@20.164.204.249 azureuser@10.0.2.4
+ssh -i ~/.ssh/app-key.pem -o "ProxyCommand=ssh -i ~/.ssh/web-key.pem -W %h:%p azureuser@20.164.204.249" azureuser@10.0.2.4
 ```
-*Crucial Security Standard:* Private keys are never uploaded or stored on the intermediate Web VM. The Web VM acts strictly as an encrypted TCP pipe relaying traffic between the local admin workstation and the App VM.
+Private keys remain exclusively on the local workstation. The intermediate Web VM functions solely as an encrypted TCP relay.
 
-#### Secret Management Baseline
-1. Sensitive configuration items (MySQL credentials, JWT signing secrets, database host endpoints) are stored exclusively in local `.env` configuration files on each VM.
-2. File permissions are restricted immediately upon creation:
-   ```bash
-   chmod 600 .env
-   ```
-   This ensures only the owning user process can read or modify application secrets.
-3. Git repositories are guarded with comprehensive `.gitignore` rules to prevent credential leakage.
-
----
-
-### 3.4 Verification & Evidence
-
-#### Screenshot 5: Network Security Group Inbound Rules Comparison
-Displays the verified inbound security rules configured across `Web_NSG`, `App_NSG`, and `DB_NSG`, enforcing least-privilege traffic boundaries.
+### 3.4 Evidence
+#### Screenshot 5: Network Security Group Rules
+Displays the verified inbound rules for `Web_NSG`, `App_NSG`, and `DB_NSG`.
 
 ![Screenshot 5: NSG Inbound Rules](images/screenshot5_nsg_inbound_rules.png)
 
-#### Screenshot 6: Web Virtual Machine Public IP & NIC Association
-Displays `pip-book-review-web-vm` showing Public IP `20.164.204.249` bound to network interface `book-review-web-vm307` and Virtual Machine `book-review-web-vm`.
+#### Screenshot 6: Web VM Overview
+Displays `book-review-web-vm` with public IP `20.164.204.249` and private IP `10.0.1.4`.
 
 ![Screenshot 6: Web VM Overview](images/screenshot6_web_vm_overview.png)
 
 ---
 
-## Task 4: Deploy Managed Database Tier (Azure MySQL Flexible Server)
+## Task 4: Managed Database Tier Deployment
 
-### 4.1 Overview & Architecture Rationale
-Rather than maintaining an unmanaged MySQL installation on a self-hosted virtual machine, production enterprise standards mandate using **Azure Database for MySQL Flexible Server**.
+### 4.1 Azure Database for MySQL Flexible Server
+A managed MySQL Flexible Server was chosen over a self-hosted VM database to ensure automated backups, built-in high availability, and automated maintenance patching.
 
-Key technical advantages:
-* **Private Network Isolation:** Bound to `DB_Subnet (10.0.3.0/26)` via VNet Integration, with **zero public endpoint**.
-* **Private DNS Zone Integration:** Automatically provisions a private domain name (`book-review-db-jamiu.private.mysql.database.azure.com`) linked to `Book_Review_VNet` for secure intra-VNet name resolution.
-* **Automated Backups & Recovery:** Point-in-time restoration capabilities.
-* **In-Transit Encryption:** Enforces TLS 1.2+ encryption (`require_secure_transport = ON`) on TCP port 3306.
-
----
-
-### 4.2 Configuration Parameters
-* **Resource Group:** `BookReview_RG`
 * **Server Name:** `book-review-db-jamiu`
-* **Region:** `South Africa North`
-* **Compute Tier:** Burstable (`Standard_B1ms` / General Purpose)
-* **MySQL Engine Version:** 8.4 LTS
-* **Connectivity Method:** **Private access (VNet Integration)**
-* **Virtual Network:** `Book_Review_VNet`
-* **Subnet:** `DB_Subnet (10.0.3.0/26)`
+* **Private Endpoint IP:** `10.0.3.4` (in `DB_Subnet`)
+* **MySQL Version:** 8.4 LTS
+* **Compute Tier:** Burstable `Standard_B1ms`
 * **Private DNS Zone:** `book-review-db-jamiu.private.mysql.database.azure.com`
-* **Enforced Encryption:** SSL/TLS enabled
+* **Encryption in Transit:** Enforced TLS 1.2+ (`require_secure_transport = ON`)
 
----
-
-### 4.3 Verification & Evidence
-
-#### Screenshot 7: Database Server Overview
-Displays the Azure Database for MySQL Flexible Server overview blade confirming server status `Ready`, MySQL version 8.4, and location `South Africa North`.
+### 4.2 Evidence
+#### Screenshot 7: MySQL Server Overview
+Displays `book-review-db-jamiu` with server status `Ready`, MySQL version 8.4, and location `South Africa North`.
 
 ![Screenshot 7: MySQL Server Overview](images/screenshot7_mysql_server_overview.png)
 
-#### Screenshot 8: Database Networking & Private DNS Integration
-Displays the database Networking blade confirming Private Access within `DB_Subnet` and active Private DNS Zone integration (`book-review-db-jamiu.private.mysql.database.azure.com`).
+#### Screenshot 8: MySQL Private Networking and DNS Integration
+Displays the Networking blade confirming Private Access inside `DB_Subnet` and active Private DNS Zone integration.
 
 ![Screenshot 8: MySQL Networking & Private DNS](images/screenshot8_mysql_networking_private_dns.png)
 
@@ -307,179 +231,154 @@ Displays the database Networking blade confirming Private Access within `DB_Subn
 
 ## Task 5: Deploy Application Tier (Private App VM)
 
-### 5.1 Architecture & Provisioning
-The Application VM hosts the Node.js/Express REST API and is completely shielded from public exposure.
+### 5.1 Application VM Profile (`book-review-app-vm`)
+* **Private IP:** `10.0.2.4` (in `App_Subnet`)
+* **Public IP:** None (zero public exposure)
+* **Outbound Connectivity:** Routed via `Book_Review_NAT_GW` (`4.221.200.108`)
+* **Runtime:** Node.js 20, Express REST API, Sequelize ORM
+* **Process Supervision:** PM2 daemon configured with systemd auto-start
 
-#### Configuration Profile:
-* **VM Name:** `book-review-app-vm`
-* **Resource Group:** `BookReview_RG`
-* **Region:** `South Africa North`
-* **Image:** Ubuntu Server 24.04 LTS - x64 Gen2
-* **Compute Size:** `Standard_B2ats_v2` (2 vCPUs, 1–2 GiB Memory)
-* **Virtual Network:** `Book_Review_VNet`
-* **Subnet:** `App_Subnet (10.0.2.0/25)`
-* **Private IP Address:** `10.0.2.4`
-* **Public IP Address:** **None** (Outbound egress handled via `Book_Review_NAT_GW` with Public IP `4.221.200.108`)
-* **NIC Security Group:** None (delegated to subnet NSG `App_NSG`)
+### 5.2 Database Initialization
+Using the SSH ProxyJump pathway, the private application server connected to MySQL on `10.0.3.4`. A dedicated database `book_review_db` and non-root user `bookreview_app` were initialized with restricted permissions.
 
----
-
-### 5.2 Verification & Evidence
-
-#### Screenshot 9: Application VM Overview (Zero Public IP)
-Displays `book-review-app-vm` running in `App_Subnet` with private IP `10.0.2.4` and no public IP assigned (outbound egress mapped exclusively to `Book_Review_NAT_GW`).
+### 5.3 Evidence
+#### Screenshot 9: Application VM Overview (No Public IP)
+Displays `book-review-app-vm` in `App_Subnet` with private IP `10.0.2.4` and no public IP assigned.
 
 ![Screenshot 9: App VM Overview](images/screenshot9_app_vm_overview.png)
 
-#### Screenshot 10: SSH ProxyJump Connection (Local Admin -> Web VM -> App VM)
-Displays the successful SSH ProxyJump connection from the local administrator workstation jumping through `book-review-web-vm` (`20.164.204.249`) to the isolated `book-review-app-vm` (`10.0.2.4`).
+#### Screenshot 10: SSH ProxyJump Bastion Connection
+Shows the terminal session connecting from the workstation through the Web VM to the private App VM.
 
-![Screenshot 10: SSH ProxyJump Connection](images/screenshot10_ssh_proxyjump.png)
+![Screenshot 10: SSH ProxyJump](images/screenshot10_ssh_proxyjump.png)
 
-#### Screenshot 11: MySQL Database Initialization & Least-Privilege User Creation
-Displays the creation of the application database `book_review_db` and dedicated non-root user `bookreview_app` over the private Azure network interface (`10.0.3.4`).
+#### Screenshot 11: MySQL Database and Application User Initialization
+Shows the SQL commands creating `book_review_db` and granting least-privilege rights to `bookreview_app`.
 
 ![Screenshot 11: MySQL Database Creation](images/screenshot11_mysql_database_creation.png)
 
-#### Screenshot 12: Backend Runtime & Local Health Probe (PM2 Process Supervision)
-Displays the Express REST API supervised by PM2 (`online` status) and responding to a local health probe on port 3001 with `📚 Book Review API is running...`.
+#### Screenshot 12: Backend Runtime and Health Check
+Shows PM2 managing `book-review-backend` in `online` status and responding with `HTTP/1.1 200 OK` on port 3001.
 
-![Screenshot 12: Backend Health Check & PM2](images/screenshot12_backend_health_check.png)
+![Screenshot 12: Backend Health Check](images/screenshot12_backend_health_check.png)
 
 ---
 
 ## Task 6: Deploy Presentation Tier (Web VM & Nginx Reverse Proxy)
 
-### 6.1 Overview & Architecture Rationale
-The Presentation Tier handles all client-facing traffic. It hosts:
-1. **Next.js 15 Frontend:** Running locally on port `3000` (Server-Side Rendering and React client components).
-2. **Nginx Reverse Proxy:** Listening on TCP port `80`, terminating public requests, and routing traffic:
-   * Web pages (`/`) are forwarded to the local Next.js frontend (`http://127.0.0.1:3000`).
-   * API requests (`/api/*`) are forwarded internally across the VNet to the backend application endpoint (`http://10.0.2.4:3001/api/`).
+### 6.1 Presentation Architecture
+The web tier hosts:
+1. **Next.js 15 Frontend:** Running locally on port 3000, managed by PM2.
+2. **Nginx Reverse Proxy:** Listening on TCP port 80:
+   * Root requests (`/`) are forwarded to the local Next.js frontend (`http://127.0.0.1:3000`).
+   * API requests (`/api/*`) are forwarded across the virtual network to the Internal Load Balancer on `http://10.0.2.10:3001`.
 
----
+### 6.2 Evidence
+#### Screenshot 13: Next.js Production Build and PM2 Supervision
+Shows `npm run build` completing successfully and PM2 running `book-review-frontend` on port 3000.
 
-### 6.2 Verification & Evidence
-
-#### Screenshot 13: Next.js Production Build & PM2 Service Supervision
-Displays the successful compilation of the Next.js production build (`npm run build`) and the PM2 process table showing `book-review-frontend` running `online` on Port 3000.
-
-![Screenshot 13: Next.js Production Build](images/screenshot13_nextjs_build_and_pm2.png)
+![Screenshot 13: Next.js Build & PM2](images/screenshot13_nextjs_build_and_pm2.png)
 
 #### Screenshot 14: Nginx Reverse Proxy Configuration
-Displays the Nginx virtual host configuration routing root requests (`/`) to the local Next.js frontend on port 3000 and `/api/` calls across the VNet to the private App VM on port 3001.
+Shows the Nginx virtual host configuration routing frontend traffic to port 3000 and API traffic to the internal backend.
 
 ![Screenshot 14: Nginx Configuration](images/screenshot14_nginx_reverse_proxy_config.png)
 
-#### Screenshot 15: Direct Web VM Verification (Live Web Application)
-Displays the browser accessing `http://20.164.204.249` showing the live Book Review Application.
+#### Screenshot 15: Direct Web VM Verification
+Shows the browser accessing `http://20.164.204.249` directly during initial staging.
 
 ![Screenshot 15: Direct Web VM Verification](images/screenshot15_direct_web_vm_verification.png)
 
 ---
 
-## Task 7: Configure Dual Load Balancers & Observability
+## Task 7: Configure Dual Load Balancers and Infrastructure Monitoring
 
-### 7.1 Overview & Design Rationale
-In production three-tier deployments, individual virtual machines should never receive unmanaged direct traffic. Load balancers decouple clients from servers, perform TCP health checks, and ensure continuous availability.
+### 7.1 Load Balancer Topology
 
-1. **Azure Standard Public Load Balancer (`book-review-pub-lb`):**
-   * **Role:** Public application entry point.
+1. **Public Load Balancer (`book-review-pub-lb`):**
+   * **Role:** External ingress entry point.
    * **Frontend:** Public IP `20.87.111.190` (`pip-book-review-pub-lb`).
-   * **Backend Pool:** `bep-web-tier` containing `book-review-web-vm` (`10.0.1.4`).
+   * **Backend Pool:** `bep-web-tier` (`book-review-web-vm` / `10.0.1.4`).
    * **Health Probe:** TCP Port 80 (`hp-web-80`).
-   * **Load Balancing Rule:** `lb-rule-web-80` (TCP 80 → 80).
+   * **Load Balancing Rule:** `lb-rule-web-80` (TCP 80 to 80).
 
-2. **Azure Standard Internal Load Balancer (`book-review-int-lb`):**
-   * **Role:** Internal API traffic distribution between Web tier and App tier.
-   * **Frontend:** Private Static IP **`10.0.2.10`** in `App_Subnet` (reserved in Task 2).
-   * **Backend Pool:** `bep-app-tier` containing `book-review-app-vm` (`10.0.2.4`).
+2. **Internal Load Balancer (`book-review-int-lb`):**
+   * **Role:** Private inter-tier traffic distribution between presentation and application tiers.
+   * **Frontend:** Private Static IP `10.0.2.10` in `App_Subnet`.
+   * **Backend Pool:** `bep-app-tier` (`book-review-app-vm` / `10.0.2.4`).
    * **Health Probe:** TCP Port 3001 (`hp-app-3001`).
-   * **Load Balancing Rule:** `lb-rule-app-3001` (TCP 3001 → 3001).
+   * **Load Balancing Rule:** `lb-rule-app-3001` (TCP 3001 to 3001).
 
-3. **Single-Instance Limitation & High-Availability Tradeoff:**
-   * This capstone deployment utilizes one VM per compute tier. Azure Standard Load Balancer health probes actively monitor instance health. While horizontal auto-scaling via Virtual Machine Scale Sets (VMSS) across multiple Availability Zones provides multi-instance fault tolerance in high-traffic enterprise environments, this single-instance architecture provides cost efficiency while enabling testing of fault recovery after restart.
+3. **Infrastructure Monitoring Rule:**
+   * Configured an Azure Monitor metric alert rule named `alert-high-cpu-webVM` on `book-review-web-vm` to trigger when CPU usage exceeds 80 percent over a 5-minute evaluation window.
 
----
-
-### 7.2 Verification & Evidence
-
+### 7.2 Evidence
 #### Screenshot 16: Public Load Balancer Configuration
-Displays `book-review-pub-lb` overview confirming:
-* Public Frontend IP: `20.87.111.190`
-* Backend pool `bep-web-tier` (`book-review-web-vm`)
-* Health probe `hp-web-80` (TCP:80)
-* Load balancing rule `lb-rule-web-80` (TCP 80 -> 80).
+Displays `book-review-pub-lb` overview with public frontend IP `20.87.111.190`, backend pool `bep-web-tier`, health probe on port 80, and load balancing rule `lb-rule-web-80`.
 
 ![Screenshot 16: Public Load Balancer](images/screenshot16_public_load_balancer.png)
 
 #### Screenshot 17: Internal Load Balancer Configuration
-Displays `book-review-int-lb` overview confirming:
-* Private Frontend IP: `10.0.2.10`
-* Backend pool `bep-app-tier` containing `book-review-app-vm`
-* Health probe `hp-app-3001` on TCP port 3001
-* Load balancing rule `lb-rule-app-3001` (TCP 3001 -> 3001).
+Displays `book-review-int-lb` overview with private frontend IP `10.0.2.10`, backend pool `bep-app-tier`, health probe on port 3001, and load balancing rule `lb-rule-app-3001`.
 
 ![Screenshot 17: Internal Load Balancer](images/screenshot17_internal_load_balancer.png)
 
 #### Screenshot 18: Azure Monitor Metric Alert Rule
-Displays the configured metric alert rule `alert-high-cpu-webVM` monitoring `Percentage CPU > 80%` on `book-review-web-vm` in resource group `BookReview_RG`.
+Displays the configured metric alert rule `alert-high-cpu-webVM` monitoring percentage CPU on `book-review-web-vm`.
 
 ![Screenshot 18: Azure Monitor Alert Rule](images/screenshot18_monitoring_alert_rule.png)
 
 ---
 
-## Task 8: End-to-End Validation, Fault Recovery, and Capstone Documentation
+## Task 8: End-to-End Validation, Data Persistence, and Fault Recovery
 
-### 8.1 Implementation & End-to-End Traffic Verification
+### 8.1 Complete Request Lifecycle
+The end-to-end request flow operates as follows:
+1. **Client Ingress:** The user browser opens `http://20.87.111.190`.
+2. **Web Tier Routing:** The Public Load Balancer forwards traffic to Nginx on `book-review-web-vm` (`10.0.1.4`). Next.js renders the frontend layout and issues client API calls to `/api/*`.
+3. **Internal Proxying:** Nginx captures requests to `/api/*` and proxies them across the virtual network to the Internal Load Balancer private frontend (`10.0.2.10:3001`).
+4. **Application Processing:** The Internal Load Balancer delivers traffic to the Express API on `book-review-app-vm` (`10.0.2.4`).
+5. **Database Execution:** Express queries MySQL on `10.0.3.4` over an encrypted TLS connection and returns JSON payloads to the browser.
 
-1. **Complete Request Lifecycle (Tier 1 → Tier 2 → Tier 3):**
-   * **Client Ingress:** Workstation browser accesses `http://20.87.111.190` (Public Load Balancer `book-review-pub-lb`).
-   * **Web Tier Routing:** The Public Load Balancer routes external port 80 traffic to Nginx reverse proxy on `book-review-web-vm` (`10.0.1.4`). Next.js 15 renders the frontend UI, loading book cards dynamically via asynchronous client API calls.
-   * **Internal API Proxying:** Browser requests to `/api/*` are captured by Nginx on the Web VM and reverse-proxied across subnets to the Internal Load Balancer private frontend (`http://10.0.2.10:3001`).
-   * **Application Tier Execution:** The Internal Load Balancer balances traffic to Node.js/Express (`book-review-backend`) on `book-review-app-vm` (`10.0.2.4`, zero public IP).
-   * **Database Tier Persistence:** Express executes parameterized queries over SSL to Azure Database for MySQL Flexible Server (`10.0.3.4`) in `DB_Subnet`.
-
-2. **Fault Recovery & Resilience:**
-   * Compute instances are supervised by systemd services (`pm2-azureuser`), ensuring automatic service recovery following host reboot or unexpected termination.
-   * A controlled node restart on `book-review-app-vm` confirmed zero operator intervention needed for PM2 to bring the Express backend online, resume health probe responses, and restore API traffic flow.
-
----
-
-### 8.2 Verification & Evidence
-
+### 8.2 Evidence
 #### Screenshot 19: Public Load Balancer Application Access
-Displays the browser successfully accessing `http://20.87.111.190` through `book-review-pub-lb`. The Next.js frontend retrieves and renders book cards (`The Pragmatic Programmer`, `Clean Code`, `JavaScript: The Good Parts`) from the private database tier via the internal load balancer.
+Displays the browser loading `http://20.87.111.190` through `book-review-pub-lb`. The Next.js frontend retrieves and renders book cards (`The Pragmatic Programmer`, `Clean Code`, `JavaScript: The Good Parts`) from the database tier.
 
 ![Screenshot 19: Public Load Balancer Application Access](images/screenshot19_public_lb_application_access.png)
 
-#### Screenshot 20: User Authentication & Review Submission
-Displays the book details page (`http://20.87.111.190/book/1`) after successful user authentication as **Kola Dahunsi**. A 5-star review with comment (`A must-read handbook for every software engineer!`) is submitted through the UI and rendered in the live reviews feed.
+#### Screenshot 20: User Review Submission
+Displays the book details page (`http://20.87.111.190/book/1`) after user authentication as Kola Dahunsi. A 5-star review with comment (`A must-read handbook for every software engineer!`) is submitted and immediately rendered in the reviews list.
 
 ![Screenshot 20: User Review Submission](images/screenshot20_user_review_submission.png)
 
 #### Screenshot 21: Database Persistence Verification
-Direct SQL query verification executed from `book-review-app-vm` against `book-review-db-jamiu` (`10.0.3.4`) confirming relational data persistence:
-* `Users` table contains user ID `5` (`Kola Dahunsi`).
-* `Reviews` table contains review ID `3` linked to user ID `5` and book ID `1` with comment `A must-read handbook for every software engineer!`.
+Direct SQL query output executed from `book-review-app-vm` against `book-review-db-jamiu` (`10.0.3.4`) confirming data persistence:
+* The `Users` table contains user ID 5 (`Kola Dahunsi`).
+* The `Reviews` table contains review ID 3 linked to user ID 5 with the submitted review text.
 
 ![Screenshot 21: Database Persistence Verification](images/screenshot21_database_persistence_verification.png)
 
 #### Screenshot 22: Controlled Fault Recovery Test
-Demonstrates system resilience following a controlled reboot (`sudo reboot`) of `book-review-app-vm`:
-* `uptime` confirms fresh restart (`up 0 min`).
-* `pm2 status` confirms `book-review-backend` process automatically restored to `online` status via systemd.
-* `curl -i http://localhost:3001/` confirms local API health returning `HTTP/1.1 200 OK` and `📚 Book Review API is running...`.
+Demonstrates system resilience following a controlled reboot (`sudo reboot`) on `book-review-app-vm`:
+* `uptime` confirms the system recently restarted (`up 0 min`).
+* `pm2 status` confirms `book-review-backend` was automatically brought back to `online` status via the systemd service.
+* `curl -i http://localhost:3001/` confirms local API health returning `HTTP/1.1 200 OK`.
 
 ![Screenshot 22: Controlled Fault Recovery](images/screenshot22_controlled_fault_recovery.png)
 
-#### Screenshot 23: Capstone Completion & Professional Showcase
-*(Screenshot 23 placeholder - LinkedIn capstone post celebrating production deployment with best practices)*
+---
+
+## 12. Architectural Takeaways and Best Practices
+
+1. **Azure Load Balancer Loopback (Hairpinning) Rule:** A virtual machine that is a backend pool member of an Internal Load Balancer cannot query the load balancer frontend IP to connect to itself. Azure drops these packets by design. Health checks and route verifications to an internal load balancer must always be executed from a different virtual machine (e.g. from the Web VM).
+2. **Next.js Client-Side Environment Variables:** In Next.js client bundles, `NEXT_PUBLIC_*` environment variables are baked into static JavaScript files during compilation (`npm run build`). Setting them in a runtime `.env` file without rebuilding the application leaves client requests targeting empty or default hostnames.
+3. **Memory Management on Burstable Instances:** On 1 GiB virtual machine instances, compilation steps can trigger the Linux Out-Of-Memory (OOM) killer. Configuring a 2 GiB swapfile provides adequate overhead for compilation tasks without requiring larger VM sizes.
+4. **Least-Privilege Database Access:** Restricting MySQL database access to a dedicated application user (`bookreview_app`) limited to a specific private subnet CIDR guarantees that a compromised web server cannot access the database directly.
 
 ---
 
-## Author & Engineering Profile
+## Author Profile
 
-* **Engineer:** Jamiu Dahunsi  
-* **Role:** Cloud & DevOps Engineer  
-* **Specialization:** Enterprise Cloud Infrastructure, Network Security, Microservices & Three-Tier Deployments on Microsoft Azure
+* **Engineer:** Jamiu Dahunsi
+* **Role:** Cloud and DevOps Engineer
+* **Focus Areas:** Enterprise Cloud Architecture, Infrastructure Security, Networking, and Containerized Deployments on Microsoft Azure
