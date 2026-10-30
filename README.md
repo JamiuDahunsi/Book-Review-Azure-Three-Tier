@@ -429,21 +429,52 @@ Displays the configured metric alert rule `alert-high-cpu-webVM` monitoring `Per
 
 ---
 
-## Task 8: End-to-End Validation & Fault Recovery
+## Task 8: End-to-End Validation, Fault Recovery, and Capstone Documentation
 
-### 8.1 Verification & Evidence (Placeholders)
+### 8.1 Implementation & End-to-End Traffic Verification
+
+1. **Complete Request Lifecycle (Tier 1 → Tier 2 → Tier 3):**
+   * **Client Ingress:** Workstation browser accesses `http://20.87.111.190` (Public Load Balancer `book-review-pub-lb`).
+   * **Web Tier Routing:** The Public Load Balancer routes external port 80 traffic to Nginx reverse proxy on `book-review-web-vm` (`10.0.1.4`). Next.js 15 renders the frontend UI, loading book cards dynamically via asynchronous client API calls.
+   * **Internal API Proxying:** Browser requests to `/api/*` are captured by Nginx on the Web VM and reverse-proxied across subnets to the Internal Load Balancer private frontend (`http://10.0.2.10:3001`).
+   * **Application Tier Execution:** The Internal Load Balancer balances traffic to Node.js/Express (`book-review-backend`) on `book-review-app-vm` (`10.0.2.4`, zero public IP).
+   * **Database Tier Persistence:** Express executes parameterized queries over SSL to Azure Database for MySQL Flexible Server (`10.0.3.4`) in `DB_Subnet`.
+
+2. **Fault Recovery & Resilience:**
+   * Compute instances are supervised by systemd services (`pm2-azureuser`), ensuring automatic service recovery following host reboot or unexpected termination.
+   * A controlled node restart on `book-review-app-vm` confirmed zero operator intervention needed for PM2 to bring the Express backend online, resume health probe responses, and restore API traffic flow.
+
+---
+
+### 8.2 Verification & Evidence
 
 #### Screenshot 19: Public Load Balancer Application Access
-*(Screenshot 19 placeholder - Browser accessing application via Public Load Balancer URL http://20.87.111.190)*
+Displays the browser successfully accessing `http://20.87.111.190` through `book-review-pub-lb`. The Next.js frontend retrieves and renders book cards (`The Pragmatic Programmer`, `Clean Code`, `JavaScript: The Good Parts`) from the private database tier via the internal load balancer.
 
-#### Screenshot 20: User Registration & Review Creation
-*(Screenshot 20 placeholder - Registering a new account and posting a book review through the public UI)*
+![Screenshot 19: Public Load Balancer Application Access](images/screenshot19_public_lb_application_access.png)
+
+#### Screenshot 20: User Authentication & Review Submission
+Displays the book details page (`http://20.87.111.190/book/1`) after successful user authentication as **Kola Dahunsi**. A 5-star review with comment (`A must-read handbook for every software engineer!`) is submitted through the UI and rendered in the live reviews feed.
+
+![Screenshot 20: User Review Submission](images/screenshot20_user_review_submission.png)
 
 #### Screenshot 21: Database Persistence Verification
-*(Screenshot 21 placeholder - Querying MySQL directly to verify the newly created user and review records exist)*
+Direct SQL query verification executed from `book-review-app-vm` against `book-review-db-jamiu` (`10.0.3.4`) confirming relational data persistence:
+* `Users` table contains user ID `5` (`Kola Dahunsi`).
+* `Reviews` table contains review ID `3` linked to user ID `5` and book ID `1` with comment `A must-read handbook for every software engineer!`.
 
-#### Screenshot 22: Controlled Fault & Recovery Test
-*(Screenshot 22 placeholder - Restarting VM and confirming automatic service recovery)*
+![Screenshot 21: Database Persistence Verification](images/screenshot21_database_persistence_verification.png)
+
+#### Screenshot 22: Controlled Fault Recovery Test
+Demonstrates system resilience following a controlled reboot (`sudo reboot`) of `book-review-app-vm`:
+* `uptime` confirms fresh restart (`up 0 min`).
+* `pm2 status` confirms `book-review-backend` process automatically restored to `online` status via systemd.
+* `curl -i http://localhost:3001/` confirms local API health returning `HTTP/1.1 200 OK` and `📚 Book Review API is running...`.
+
+![Screenshot 22: Controlled Fault Recovery](images/screenshot22_controlled_fault_recovery.png)
+
+#### Screenshot 23: Capstone Completion & Professional Showcase
+*(Screenshot 23 placeholder - LinkedIn capstone post celebrating production deployment with best practices)*
 
 ---
 
