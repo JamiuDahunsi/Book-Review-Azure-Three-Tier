@@ -20,8 +20,9 @@
 7. [Task 4: Deploy Managed Database Tier (Azure MySQL Flexible Server)](#task-4-deploy-managed-database-tier-azure-mysql-flexible-server)
 8. [Task 5: Deploy Application Tier (Private App VM)](#task-5-deploy-application-tier-private-app-vm)
 9. [Task 6: Deploy Presentation Tier (Web VM & Nginx Reverse Proxy)](#task-6-deploy-presentation-tier-web-vm--nginx-reverse-proxy)
-10. [Upcoming Implementation Phases (Tasks 7–8)](#upcoming-implementation-phases-tasks-78)
-11. [Author & Engineering Profile](#author--engineering-profile)
+10. [Task 7: Configure Dual Load Balancers & Observability](#task-7-configure-dual-load-balancers--observability)
+11. [Task 8: End-to-End Validation & Fault Recovery](#task-8-end-to-end-validation--fault-recovery)
+12. [Author & Engineering Profile](#author--engineering-profile)
 
 ---
 
@@ -354,27 +355,84 @@ The Presentation Tier handles all client-facing traffic. It hosts:
 1. **Next.js 15 Frontend:** Running locally on port `3000` (Server-Side Rendering and React client components).
 2. **Nginx Reverse Proxy:** Listening on TCP port `80`, terminating public requests, and routing traffic:
    * Web pages (`/`) are forwarded to the local Next.js frontend (`http://127.0.0.1:3000`).
-   * API requests (`/api/*`) are forwarded internally to the backend application endpoint (`http://10.0.2.10:3001` or App VM `http://10.0.2.4:3001`).
+   * API requests (`/api/*`) are forwarded internally across the VNet to the backend application endpoint (`http://10.0.2.4:3001/api/`).
 
 ---
 
-### 6.2 Verification & Evidence (Placeholders)
+### 6.2 Verification & Evidence
 
-#### Screenshot 13: Next.js Production Build
-*(Screenshot 13 placeholder - Next.js production build output and PM2 status on Web VM)*
+#### Screenshot 13: Next.js Production Build & PM2 Service Supervision
+Displays the successful compilation of the Next.js production build (`npm run build`) and the PM2 process table showing `book-review-frontend` running `online` on Port 3000.
+
+![Screenshot 13: Next.js Production Build](images/screenshot13_nextjs_build_and_pm2.png)
 
 #### Screenshot 14: Nginx Reverse Proxy Configuration
-*(Screenshot 14 placeholder - Nginx site configuration forwarding port 80 to 3000 and /api to internal endpoint)*
+Displays the Nginx virtual host configuration routing root requests (`/`) to the local Next.js frontend on port 3000 and `/api/` calls across the VNet to the private App VM on port 3001.
 
-#### Screenshot 15: Direct Web VM Verification
-*(Screenshot 15 placeholder - Browser accessing Web VM public IP showing Book Review App)*
+![Screenshot 14: Nginx Configuration](images/screenshot14_nginx_reverse_proxy_config.png)
+
+#### Screenshot 15: Direct Web VM Verification (Live Web Application)
+Displays the browser accessing `http://20.164.204.249` showing the live Book Review Application.
+
+![Screenshot 15: Direct Web VM Verification](images/screenshot15_direct_web_vm_verification.png)
 
 ---
 
-## Upcoming Implementation Phases (Tasks 7–8)
+## Task 7: Configure Dual Load Balancers & Observability
 
-* **Task 7:** Configure Public Load Balancer (Port 80) and Internal Load Balancer (Port 3001), plus Azure Monitor diagnostic metrics and alerts.
-* **Task 8:** End-to-end integration validation, database persistence verification, and controlled fault recovery test.
+### 7.1 Overview & Design Rationale
+In production three-tier deployments, individual virtual machines should never receive unmanaged direct traffic. Load balancers decouple clients from servers, perform TCP health checks, and ensure continuous availability.
+
+1. **Azure Standard Internal Load Balancer (`book-review-int-lb`):**
+   * **Role:** Internal API traffic distribution between Web tier and App tier.
+   * **Frontend:** Private Static IP **`10.0.2.10`** in `App_Subnet` (reserved in Task 2).
+   * **Backend Pool:** `book-review-app-vm` (`10.0.2.4`).
+   * **Health Probe:** TCP Port 3001.
+   * **Load Balancing Rule:** Forwards internal TCP Port 3001 traffic to App VM port 3001.
+
+2. **Azure Standard Public Load Balancer (`book-review-pub-lb`):**
+   * **Role:** Public application entry point.
+   * **Frontend:** Public IP (`pip-book-review-pub-lb`).
+   * **Backend Pool:** `book-review-web-vm` (`10.0.1.4`).
+   * **Health Probe:** TCP Port 80.
+   * **Load Balancing Rule:** Forwards incoming TCP Port 80 traffic to Web VM port 80.
+
+---
+
+### 7.2 Verification & Evidence
+
+#### Screenshot 16: Internal Load Balancer Configuration
+Displays `book-review-int-lb` overview confirming:
+* Private Frontend IP: `10.0.2.10`
+* Backend pool `bep-app-tier` containing `book-review-app-vm`
+* Health probe `hp-app-3001` on TCP port 3001
+* Load balancing rule `lb-rule-app-3001` (TCP 3001 -> 3001).
+
+![Screenshot 16: Internal Load Balancer](images/screenshot16_internal_load_balancer.png)
+
+#### Screenshot 17: Public Load Balancer Configuration
+*(Screenshot 17 placeholder - Public LB showing Frontend Public IP, backend pool with Web VM, and port 80 health probe)*
+
+#### Screenshot 18: Azure Monitor Metrics & Alert Rule
+*(Screenshot 18 placeholder - Azure Monitor metric alert configured for proactive infrastructure monitoring)*
+
+---
+
+## Task 8: End-to-End Validation & Fault Recovery
+
+### 8.1 Verification & Evidence (Placeholders)
+
+#### Screenshot 19: Public Load Balancer Application Access
+*(Screenshot 19 placeholder - Browser accessing application via Public Load Balancer URL)*
+
+#### Screenshot 20: User Registration & Review Creation
+*(Screenshot 20 placeholder - Registering a new account and posting a book review through the public UI)*
+
+#### Screenshot 21: Database Persistence Verification
+*(Screenshot 21 placeholder - Querying MySQL directly to verify the newly created user and review records exist)*
+
+#### Screenshot 22: Controlled Fault & Recovery Test
+*(Screenshot 22 placeholder - Restarting VM and confirming automatic service recovery)*
 
 ---
 
