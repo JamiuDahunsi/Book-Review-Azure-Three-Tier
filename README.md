@@ -219,7 +219,7 @@ The Web Virtual Machine functions as both the public presentation host and the a
 * **Resource Group:** `BookReview_RG`
 * **Region:** `South Africa North`
 * **Image:** Ubuntu Server 24.04 LTS - x64 Gen2
-* **Compute Size:** `Standard_B2s_v2` (2 vCPUs, 4 GiB Memory)
+* **Compute Size:** `Standard_B2s_v2` / `Standard_B2ats_v2` (2 vCPUs, 1–4 GiB Memory)
 * **Virtual Network:** `Book_Review_VNet`
 * **Subnet:** `Web_Subnet` (`10.0.1.0/24`)
 * **Private IP Address:** `10.0.1.4` (Static / Dynamic first host allocation)
@@ -383,38 +383,49 @@ Displays the browser accessing `http://20.164.204.249` showing the live Book Rev
 ### 7.1 Overview & Design Rationale
 In production three-tier deployments, individual virtual machines should never receive unmanaged direct traffic. Load balancers decouple clients from servers, perform TCP health checks, and ensure continuous availability.
 
-1. **Azure Standard Internal Load Balancer (`book-review-int-lb`):**
+1. **Azure Standard Public Load Balancer (`book-review-pub-lb`):**
+   * **Role:** Public application entry point.
+   * **Frontend:** Public IP `20.87.111.190` (`pip-book-review-pub-lb`).
+   * **Backend Pool:** `bep-web-tier` containing `book-review-web-vm` (`10.0.1.4`).
+   * **Health Probe:** TCP Port 80 (`hp-web-80`).
+   * **Load Balancing Rule:** `lb-rule-web-80` (TCP 80 → 80).
+
+2. **Azure Standard Internal Load Balancer (`book-review-int-lb`):**
    * **Role:** Internal API traffic distribution between Web tier and App tier.
    * **Frontend:** Private Static IP **`10.0.2.10`** in `App_Subnet` (reserved in Task 2).
-   * **Backend Pool:** `book-review-app-vm` (`10.0.2.4`).
-   * **Health Probe:** TCP Port 3001.
-   * **Load Balancing Rule:** Forwards internal TCP Port 3001 traffic to App VM port 3001.
+   * **Backend Pool:** `bep-app-tier` containing `book-review-app-vm` (`10.0.2.4`).
+   * **Health Probe:** TCP Port 3001 (`hp-app-3001`).
+   * **Load Balancing Rule:** `lb-rule-app-3001` (TCP 3001 → 3001).
 
-2. **Azure Standard Public Load Balancer (`book-review-pub-lb`):**
-   * **Role:** Public application entry point.
-   * **Frontend:** Public IP (`pip-book-review-pub-lb`).
-   * **Backend Pool:** `book-review-web-vm` (`10.0.1.4`).
-   * **Health Probe:** TCP Port 80.
-   * **Load Balancing Rule:** Forwards incoming TCP Port 80 traffic to Web VM port 80.
+3. **Single-Instance Limitation & High-Availability Tradeoff:**
+   * This capstone deployment utilizes one VM per compute tier. Azure Standard Load Balancer health probes actively monitor instance health. While horizontal auto-scaling via Virtual Machine Scale Sets (VMSS) across multiple Availability Zones provides multi-instance fault tolerance in high-traffic enterprise environments, this single-instance architecture provides cost efficiency while enabling testing of fault recovery after restart.
 
 ---
 
 ### 7.2 Verification & Evidence
 
-#### Screenshot 16: Internal Load Balancer Configuration
+#### Screenshot 16: Public Load Balancer Configuration
+Displays `book-review-pub-lb` overview confirming:
+* Public Frontend IP: `20.87.111.190`
+* Backend pool `bep-web-tier` (`book-review-web-vm`)
+* Health probe `hp-web-80` (TCP:80)
+* Load balancing rule `lb-rule-web-80` (TCP 80 -> 80).
+
+![Screenshot 16: Public Load Balancer](images/screenshot16_public_load_balancer.png)
+
+#### Screenshot 17: Internal Load Balancer Configuration
 Displays `book-review-int-lb` overview confirming:
 * Private Frontend IP: `10.0.2.10`
 * Backend pool `bep-app-tier` containing `book-review-app-vm`
 * Health probe `hp-app-3001` on TCP port 3001
 * Load balancing rule `lb-rule-app-3001` (TCP 3001 -> 3001).
 
-![Screenshot 16: Internal Load Balancer](images/screenshot16_internal_load_balancer.png)
+![Screenshot 17: Internal Load Balancer](images/screenshot17_internal_load_balancer.png)
 
-#### Screenshot 17: Public Load Balancer Configuration
-*(Screenshot 17 placeholder - Public LB showing Frontend Public IP, backend pool with Web VM, and port 80 health probe)*
+#### Screenshot 18: Azure Monitor Metric Alert Rule
+Displays the configured metric alert rule `alert-high-cpu-webVM` monitoring `Percentage CPU > 80%` on `book-review-web-vm` in resource group `BookReview_RG`.
 
-#### Screenshot 18: Azure Monitor Metrics & Alert Rule
-*(Screenshot 18 placeholder - Azure Monitor metric alert configured for proactive infrastructure monitoring)*
+![Screenshot 18: Azure Monitor Alert Rule](images/screenshot18_monitoring_alert_rule.png)
 
 ---
 
@@ -423,7 +434,7 @@ Displays `book-review-int-lb` overview confirming:
 ### 8.1 Verification & Evidence (Placeholders)
 
 #### Screenshot 19: Public Load Balancer Application Access
-*(Screenshot 19 placeholder - Browser accessing application via Public Load Balancer URL)*
+*(Screenshot 19 placeholder - Browser accessing application via Public Load Balancer URL http://20.87.111.190)*
 
 #### Screenshot 20: User Registration & Review Creation
 *(Screenshot 20 placeholder - Registering a new account and posting a book review through the public UI)*
